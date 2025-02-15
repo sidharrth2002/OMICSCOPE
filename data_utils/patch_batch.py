@@ -3,8 +3,11 @@ The PatchBatch class. A batch of data is quite a complicated object here, contai
 patches along with their positions, global + local context vectors and hierarchical information. The PatchBatch class
 presents a simple interface for this complicated collection of data.
 """
+
 import torch
 from typing import Tuple, Dict
+
+from model.transcriptomics_engine import get_transcriptomics_data
 
 from .slide import RawSlide, PreprocessedSlide
 import utils
@@ -17,14 +20,18 @@ class PatchBatch:
 
     Essentially handles some of the complexity of processing complex objects of different lengths in one batch.
     """
-    def __init__(self,
-                 locs: torch.LongTensor,
-                 num_ims: torch.LongTensor,
-                 parent_inds: torch.LongTensor,
-                 ctx_slide: torch.Tensor,
-                 ctx_patch: torch.Tensor,
-                 fts: torch.Tensor,
-                 **unused_kwargs):
+
+    def __init__(
+        self,
+        locs: torch.LongTensor,
+        num_ims: torch.LongTensor,
+        parent_inds: torch.LongTensor,
+        ctx_slide: torch.Tensor,
+        ctx_patch: torch.Tensor,
+        fts: torch.Tensor,
+        transcriptomics: torch.Tensor = None,
+        **unused_kwargs
+    ):
         """
         :param locs: locations of each patch feature, in *pixel coordinates at that magnification*. Shape (B x N x 2)
         :param num_ims: number of images in each batch. Shape (B)
@@ -34,6 +41,7 @@ class PatchBatch:
           Note: when LSTM is used, this is actually used to store LSTM state rather than patch features.
         :param fts: patch features. Shape (B x N x D). Padded features are the zero vector, but should not be exposed
           to the model at any point.
+        :param transcriptomics: transcriptomics features. Predicted gene expression data for each patch.
         """
         batch_size, max_patches, c = fts.shape
 
@@ -41,17 +49,30 @@ class PatchBatch:
         self.ctx_dim2 = ctx_patch.shape[-1]
 
         # Check all shapes
-        assert locs.shape         == (batch_size, max_patches, 2)
-        assert num_ims.shape      == (batch_size,)
-        assert parent_inds.shape  == (batch_size, max_patches)
-        assert ctx_slide.shape    == (batch_size, self.ctx_depth, self.ctx_dim1)
-        assert ctx_patch.shape    == (batch_size, max_patches, self.ctx_depth, self.ctx_dim2)
+        assert locs.shape == (batch_size, max_patches, 2)
+        assert num_ims.shape == (batch_size,)
+        assert parent_inds.shape == (batch_size, max_patches)
+        assert ctx_slide.shape == (batch_size, self.ctx_depth, self.ctx_dim1)
+        assert ctx_patch.shape == (
+            batch_size,
+            max_patches,
+            self.ctx_depth,
+            self.ctx_dim2,
+        )
 
         assert num_ims.max().item() == max_patches
 
         # Obtain and check device
         self.device = fts.device
-        assert self.device == locs.device == num_ims.device == parent_inds.device == ctx_slide.device == ctx_patch.device == fts.device
+        assert (
+            self.device
+            == locs.device
+            == num_ims.device
+            == parent_inds.device
+            == ctx_slide.device
+            == ctx_patch.device
+            == fts.device
+        )
 
         self.batch_size = batch_size
         self.max_patches = max_patches
@@ -99,7 +120,14 @@ def from_raw_slide(slide: RawSlide, im_enc, transform, device=None) -> PatchBatc
         fts = im_enc(transform(slide.patches.to(device)))
 
     num_ims = torch.LongTensor([slide.locs.size(0)]).to(device)
-    return PatchBatch(p(slide.locs), num_ims, p(slide.parent_inds), p(slide.ctx_slide), p(slide.ctx_patch), p(fts))
+    return PatchBatch(
+        p(slide.locs),
+        num_ims,
+        p(slide.parent_inds),
+        p(slide.ctx_slide),
+        p(slide.ctx_patch),
+        p(fts),
+    )
 
 
 def from_preprocessed_slide(slide: PreprocessedSlide, device=None) -> PatchBatch:
@@ -120,4 +148,14 @@ def from_preprocessed_slide(slide: PreprocessedSlide, device=None) -> PatchBatch
 
     num_ims = torch.LongTensor([slide.locs.size(0)]).to(device)
     fts = slide.fts[0]
-    return PatchBatch(p(slide.locs), num_ims, p(slide.parent_inds), p(slide.ctx_slide), p(slide.ctx_patch), p(fts))
+    # get transcriptomics data by predicting gene expression based on patch features
+    transcriptomics = get_transcriptomics_data(fts)
+    return PatchBatch(
+        p(slide.locs),
+        num_ims,
+        p(slide.parent_inds),
+        p(slide.ctx_slide),
+        p(slide.ctx_patch),
+        p(fts),
+        transcriptomics=transcriptomics,
+    )
