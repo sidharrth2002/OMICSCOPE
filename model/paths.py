@@ -7,7 +7,7 @@ from .interface import Processor
 from .aggregator import TransformerAggregator
 import config as cfg
 import utils
-
+from model.transcriptomics_engine import get_num_transcriptomics_features
 
 class PATHSProcessor(nn.Module, Processor):
     """
@@ -45,7 +45,7 @@ class PATHSProcessor(nn.Module, Processor):
 
         # Per-patch MLP to produce importance values \alpha
         self.importance_mlp = nn.Sequential(
-            nn.Linear(self.dim, config.importance_mlp_hidden_dim),
+            nn.Linear(self.dim + get_num_transcriptomics_features(), config.importance_mlp_hidden_dim),
             nn.ReLU(),
             nn.Linear(config.importance_mlp_hidden_dim, 1),
         )
@@ -69,6 +69,8 @@ class PATHSProcessor(nn.Module, Processor):
             layers=config.trans_layers,
             dropout=config.dropout,
         )
+        
+        self.transcriptomics_projector = nn.Linear(get_num_transcriptomics_features(), self.dim)
 
     def process(self, data: PatchBatch, lstm=None) -> Dict:
         """
@@ -77,6 +79,8 @@ class PATHSProcessor(nn.Module, Processor):
         """
         patch_features = data.fts
         transcriptomics = data.transcriptomics
+
+        print('transcriptomics is ', transcriptomics)
 
         ################# Apply LSTM
         if self.config.lstm:
@@ -87,26 +91,41 @@ class PATHSProcessor(nn.Module, Processor):
                 hs = torch.zeros(
                     (data.batch_size, data.max_patches, self.dim), device=data.device
                 )
+                print('depth 0 hs shape is ', hs.shape)
                 cs = torch.zeros(
                     (data.batch_size, data.max_patches, self.hdim), device=data.device
                 )
+                print('depth 0 cs shape is ', cs.shape)
 
             # Otherwise, retrieve it
             else:
                 lstm_state = data.ctx_patch[:, :, -1]
-                assert lstm_state.shape[-1] == self.dim + self.hdim
+                print('lstm_state shape is ', lstm_state.shape)
+                print('self.dim is ', self.dim)
+                print('self.hdim is ', self.hdim)
+                print('self.dim + self.hdim is ', self.dim + self.hdim)
+                assert lstm_state.shape[-1] == self.dim + self.hdim or lstm_state.shape[-1] == self.dim + self.hdim + transcriptomics.shape[-1]
                 hs, cs = lstm_state[..., : self.dim], lstm_state[..., self.dim :]
 
+            print('patch_features shape is ', patch_features.shape)
+            print('hs shape is ', hs.shape)
+            print('cs shape is ', cs.shape)
             hs, cs = lstm(patch_features, hs, cs)
+            print('hs shape after lstm is ', hs.shape)
+            print('cs shape after lstm is ', cs.shape)
+
+            print('patch_features shape before adding hs is ', patch_features.shape)
             patch_features = patch_features + hs  # produce Y from X
-
+            print('patch_features shape after adding hs is ', patch_features.shape)
+            
             patch_ctx = torch.concat((hs, cs), dim=-1)
-
+            print('patch_ctx shape after concatenating hs and cs is ', patch_ctx.shape)
         ################# Get importance values \alpha
         # (this method ensures padding is assigned 0 importance: apply the MLP+sigmoid only to non-background patches)
         importance = utils.apply_to_non_padded(
-            lambda xs: torch.sigmoid(self.importance_mlp(xs)),
+            lambda xs: torch.sigmoid(self.importance_mlp(torch.concat((xs["contextualised_features"], xs["transcriptomics"].clone().detach()), dim=-1))),
             patch_features,
+            transcriptomics,
             data.valid_inds,
             1,
         )[..., 0]
@@ -128,8 +147,16 @@ class PATHSProcessor(nn.Module, Processor):
             patch_ctx = patch_features
 
         # append transcriptomics features to patch context
-        if self.config.transcriptomics:
-            patch_ctx = torch.cat((patch_ctx, transcriptomics), dim=-1)
+        # if transcriptomics is not None:
+        #     print('appending transcriptomics')
+        #     print('patch_ctx shape is ', patch_ctx.shape)
+        #     print('transcriptomics shape is ', transcriptomics.shape)
+        #     # patch_ctx = torch.cat((patch_ctx, transcriptomics), dim=-1)
+        #     patch_ctx = torch.cat((
+        #         patch_ctx,
+        #         self.transcriptomics_projector(transcriptomics.clone().detach())
+        #     ), dim=-1)
+        #     print('patch_ctx shape after concatenating transcriptomics is ', patch_ctx.shape)
 
         ################# Global aggregation
         d = self.config.trans_dim
@@ -174,3 +201,12 @@ class PATHSProcessor(nn.Module, Processor):
         if self.config.lstm:
             return self.slide_ctx_dim, self.dim + self.hdim
         return self.slide_ctx_dim, self.dim
+
+def load(slide_id, power: float):
+    assert root_dir is not None, f"set_preprocess_dir must be called before load!"
+    path = join(root_dir, slide_id + f"_{power:.3f}.pt")
+    assert os.path.isfile(path), f"Pre-process load: path '{path}' not found!"
+    return torch.load(path)
+
+if __name__ == '__main__':
+    print('this runs')

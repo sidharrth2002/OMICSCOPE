@@ -3,7 +3,7 @@ import torch
 from torch import nn
 from abc import abstractmethod, ABC
 from typing import Tuple, Dict, Callable
-
+from model.transcriptomics_engine import get_num_transcriptomics_features
 from data_utils.patch_batch import PatchBatch
 
 
@@ -88,6 +88,8 @@ class RecursiveModel(nn.Module):
 
         from config import PATHSProcessorConfig
         if isinstance(config_, PATHSProcessorConfig) and config_.lstm:
+            # TODO: add transcriptomics dimension to end of this
+            num_transcriptomics_features = get_num_transcriptomics_features()
             self.lstm = LSTMCell(config_.patch_embed_dim, config_.patch_embed_dim, config_.hierarchical_ctx_mlp_hidden_dim)
             self.use_lstm = True
         else:

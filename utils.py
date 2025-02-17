@@ -103,7 +103,7 @@ def padding_mask(xs: torch.Tensor, lengths: torch.LongTensor):
     return torch.arange(max_seq_length, device=lengths.device)[None] >= lengths[:, None]
 
 
-def apply_to_non_padded(network: Callable, xs: torch.Tensor, inds: torch.BoolTensor, output_dim: int):
+def apply_to_non_padded(network: Callable, xs: torch.Tensor, transcriptomics: torch.Tensor, inds: torch.BoolTensor, output_dim: int):
     """
     Applies a module to only the non-padded indices in sequence `xs`. Padded locations are populated with zeros.
     `inds` gives the non-padded indices.
@@ -111,7 +111,10 @@ def apply_to_non_padded(network: Callable, xs: torch.Tensor, inds: torch.BoolTen
     """
     batch_size, max_seq = xs.shape[:2]
     out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device)
-    out[inds] = network(xs[inds])
+    out[inds] = network({
+        "contextualised_features": xs[inds], 
+        "transcriptomics": transcriptomics[inds]
+    })
     return out
 
 
@@ -240,6 +243,8 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
         data = patch_batch.from_batch(batch, device)
         out = model(i, data)
 
+        print(f"Level {i} inference done")
+
         importance = out["importance"]
 
         new_ctx_slide = out["ctx_slide"]
@@ -250,11 +255,12 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
             imp_cpu = importance.cpu()
 
             for j in range(len(slides)):
+                print(f"Processing slide {j} at level {i}")
                 slide: PreprocessedSlide = slides[j]
-
+                print("Iterating through slide")
                 x = slide.iter(i, data.num_ims[j], locs_cpu[j], data.ctx_slide[j], data.ctx_patch[j], importance[j],
                                new_ctx_slide[j], new_ctx_patch[j], keep_patches[i], imp_cpu[j])
-
+                print("Done iterating through slide")
                 new_batch.append(x)
 
             batch = collate_fn(new_batch)

@@ -289,6 +289,16 @@ class PreprocessedSlide:
         imp_cpu = imp_cpu[:npatches]
 
         ctx_slide = torch.cat((ctx_slide, new_ctx_slide[None]), dim=0)  # K x D -> (K+1) x D
+        print("ctx_patch shape: ", ctx_patch.shape)
+        print("new_ctx_patch shape: ", new_ctx_patch.shape)
+        print("new_ctx_patch[:, None] shape: ", new_ctx_patch[:, None].shape)
+        if ctx_patch.shape[-1] != new_ctx_patch.shape[-1]:
+            # this might happen at the first iteration
+            # append 0s to the last dimension of ctx_patch to match the dimension of new_ctx_patch
+            # append 50s to the end of ctx_patch to go from shape [36, 0, 1280] to [36, 0, 1330]
+            print("Appending 0s to ctx_patch to match the dimension of new_ctx_patch")
+            ctx_patch = torch.cat((ctx_patch, torch.zeros((ctx_patch.shape[0], ctx_patch.shape[1], new_ctx_patch.shape[-1] - ctx_patch.shape[-1]), device=ctx_patch.device)), dim=-1)
+            print("New ctx_patch shape: ", ctx_patch.shape)
         ctx_patch = torch.cat((ctx_patch, new_ctx_patch[:, None]), dim=1)  # N x K x D -> N x (K+1) x D
 
         if keep_patches != -1:

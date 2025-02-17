@@ -6,7 +6,7 @@ presents a simple interface for this complicated collection of data.
 
 import torch
 from typing import Tuple, Dict
-
+import os
 from model.transcriptomics_engine import get_transcriptomics_data
 
 from .slide import RawSlide, PreprocessedSlide
@@ -93,6 +93,12 @@ class PatchBatch:
 
 
 def from_batch(batch: Dict, device) -> PatchBatch:
+    # TODO: Extract transcriptomics here
+    print(f"batch keys: {batch.keys()}")
+    print(f"batch fts shape: {batch['fts'].shape}")
+    transcriptomics = get_transcriptomics_data(batch['fts'])
+    print(f"transcriptomics: {transcriptomics[0].shape}")
+    batch['transcriptomics'] = transcriptomics[0]
     batch = {i: utils.todevice(j, device) for i, j in batch.items()}
     return PatchBatch(**batch)
 
@@ -104,6 +110,7 @@ def from_raw_slide(slide: RawSlide, im_enc, transform, device=None) -> PatchBatc
     Note: carries out image preprocessing, and patch loading if not loaded yet. All patches are encoded as a single
     batch, as we assume K is sufficiently low to allow this.
     """
+    print('from_raw_slide function is running')
     if device is None:
         device = utils.device
 
