@@ -78,6 +78,7 @@ class PatchBatch:
         self.max_patches = max_patches
 
         self.fts = fts
+        self.transcriptomics = transcriptomics
         self.locs = locs
         self.num_ims = num_ims
         self.parent_inds = parent_inds

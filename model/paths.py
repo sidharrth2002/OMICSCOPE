@@ -14,6 +14,7 @@ class PATHSProcessor(nn.Module, Processor):
     Implementation of a processor for one magnification level, Pi, implementing the abstract class Processor.
     The full model is an `interface.RecursiveModel` containing several `PATHSProcessor`s.
     """
+
     def __init__(self, config, train_config, depth: int):
         super().__init__()
         train_config: cfg.Config
@@ -22,7 +23,11 @@ class PATHSProcessor(nn.Module, Processor):
         self.depth = depth
 
         # Output dimensionality
-        num_logits = train_config.nbins if train_config.task == "survival" else len(train_config.filter_to_subtypes)
+        num_logits = (
+            train_config.nbins
+            if train_config.task == "survival"
+            else len(train_config.filter_to_subtypes)
+        )
 
         self.config = config
         self.train_config = train_config
@@ -32,7 +37,9 @@ class PATHSProcessor(nn.Module, Processor):
 
         # Slide context can either be concatenated or summed; in our paper we choose sum (mode="residual")
         if self.config.slide_ctx_mode == "concat":
-            self.classification_layer = nn.Linear(self.slide_ctx_dim * (depth + 1), num_logits)
+            self.classification_layer = nn.Linear(
+                self.slide_ctx_dim * (depth + 1), num_logits
+            )
         else:
             self.classification_layer = nn.Linear(self.slide_ctx_dim, num_logits)
 
@@ -50,7 +57,7 @@ class PATHSProcessor(nn.Module, Processor):
             self.hctx_mlp = nn.Sequential(
                 nn.Linear(self.dim, config.hierarchical_ctx_mlp_hidden_dim),
                 nn.ReLU(),
-                nn.Linear(config.hierarchical_ctx_mlp_hidden_dim, self.dim)
+                nn.Linear(config.hierarchical_ctx_mlp_hidden_dim, self.dim),
             )
 
         # Global aggregator
@@ -69,6 +76,7 @@ class PATHSProcessor(nn.Module, Processor):
         of each slide having different length etc. (padding is required).
         """
         patch_features = data.fts
+        transcriptomics = data.transcriptomics
 
         ################# Apply LSTM
         if self.config.lstm:
@@ -76,14 +84,18 @@ class PATHSProcessor(nn.Module, Processor):
 
             # Initialise LSTM state at top of hierarchy
             if self.depth == 0:
-                hs = torch.zeros((data.batch_size, data.max_patches, self.dim), device=data.device)
-                cs = torch.zeros((data.batch_size, data.max_patches, self.hdim), device=data.device)
+                hs = torch.zeros(
+                    (data.batch_size, data.max_patches, self.dim), device=data.device
+                )
+                cs = torch.zeros(
+                    (data.batch_size, data.max_patches, self.hdim), device=data.device
+                )
 
             # Otherwise, retrieve it
             else:
                 lstm_state = data.ctx_patch[:, :, -1]
                 assert lstm_state.shape[-1] == self.dim + self.hdim
-                hs, cs = lstm_state[..., :self.dim], lstm_state[..., self.dim:]
+                hs, cs = lstm_state[..., : self.dim], lstm_state[..., self.dim :]
 
             hs, cs = lstm(patch_features, hs, cs)
             patch_features = patch_features + hs  # produce Y from X
@@ -92,7 +104,12 @@ class PATHSProcessor(nn.Module, Processor):
 
         ################# Get importance values \alpha
         # (this method ensures padding is assigned 0 importance: apply the MLP+sigmoid only to non-background patches)
-        importance = utils.apply_to_non_padded(lambda xs: torch.sigmoid(self.importance_mlp(xs)), patch_features, data.valid_inds, 1)[..., 0]
+        importance = utils.apply_to_non_padded(
+            lambda xs: torch.sigmoid(self.importance_mlp(xs)),
+            patch_features,
+            data.valid_inds,
+            1,
+        )[..., 0]
         if self.config.importance_mode == "mul":
             # produce Z from Y
             patch_features = patch_features * importance[..., None]
@@ -102,11 +119,17 @@ class PATHSProcessor(nn.Module, Processor):
             if self.depth > 0 and self.config.hierarchical_ctx:
                 assert len(data.ctx_patch.shape) == 4
                 hctx = data.ctx_patch[:, :, -1]  # B x MaxIms x D
-                hctx = utils.apply_to_non_padded(self.hctx_mlp, hctx, data.valid_inds, self.dim)
+                hctx = utils.apply_to_non_padded(
+                    self.hctx_mlp, hctx, data.valid_inds, self.dim
+                )
 
                 patch_features = patch_features + hctx
 
             patch_ctx = patch_features
+
+        # append transcriptomics features to patch context
+        if self.config.transcriptomics:
+            patch_ctx = torch.cat((patch_ctx, transcriptomics), dim=-1)
 
         ################# Global aggregation
         d = self.config.trans_dim
@@ -132,7 +155,9 @@ class PATHSProcessor(nn.Module, Processor):
 
         ################# Produce final logits
         if self.config.slide_ctx_mode == "concat":
-            all_ctx = torch.flatten(data.ctx_slide, start_dim=1)  # B x K x D -> B x (K * D)
+            all_ctx = torch.flatten(
+                data.ctx_slide, start_dim=1
+            )  # B x K x D -> B x (K * D)
             ft = torch.cat((all_ctx, slide_features), dim=1)
             logits = self.classification_layer(ft)
         else:
@@ -142,7 +167,7 @@ class PATHSProcessor(nn.Module, Processor):
             "logits": logits,
             "ctx_slide": slide_features,
             "ctx_patch": patch_ctx,  # (actually RNN state)
-            "importance": importance
+            "importance": importance,
         }
 
     def ctx_dim(self) -> Tuple[int, int]:
