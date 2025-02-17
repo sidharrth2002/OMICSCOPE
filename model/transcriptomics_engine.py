@@ -1,11 +1,17 @@
 import sys
 import torch
 import pytorch_lightning as pl
+import socket
 
-# this is a git submodule, so get the model from the dissertation's original repository
-sys.path.append(
-    "/Users/sidharrthnagappan/Documents/University/Cambridge/Courses/Dissertation/dissertation/src"
-)
+if "mac" in socket.gethostname():
+    sys.path.append(
+        "/Users/sidharrthnagappan/Documents/University/Cambridge/Courses/Dissertation/dissertation/src"
+    )
+else:
+    sys.path.append(
+        "/home/sn666/dissertation/src"
+    )
+
 
 from models.hist_to_transcriptomics import HistopathologyToTranscriptomics
 
@@ -53,3 +59,6 @@ def get_transcriptomics_data(patch_features: torch.Tensor):
     predictions = trainer.predict(histtost, dataloaders=dataloader)
 
     return predictions
+
+if __name__ == '__main__':
+    
