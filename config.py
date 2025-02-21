@@ -35,6 +35,8 @@ class PATHSProcessorConfig(ModelConfig):
     importance_mlp_hidden_dim: int = 128
     hierarchical_ctx_mlp_hidden_dim: int = 256
     lstm: bool = True
+    
+    add_transcriptomics: bool = False
 
 
 # Training stats etc (model independent)

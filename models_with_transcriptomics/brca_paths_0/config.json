@@ -40,7 +40,7 @@
     "hierarchical_ctx_mlp_hidden_dim": 256,
     "lstm": true,
 
-    "add_transcriptomics": false
+    "add_transcriptomics": true
   },
 
   "root_name": "brca_paths"

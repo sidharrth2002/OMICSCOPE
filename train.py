@@ -135,7 +135,8 @@ if __name__ == "__main__":
 
     wandb.init(
         project=args.wandb_project_name,
-        name=f"{name}",
+        # name=f"{name}",
+        name=args.model_dir.replace("/", "_"),
         config=asdict(config),
         resume="allow",
         id=run_id

@@ -22,6 +22,7 @@ todo = []
 start_name = None
 for name in names:
     start = join(root, name.lower() + "_" + args.name + "_0")
+    print(start)
     if os.path.isdir(start):
         found = start
         start_name = name.lower()
