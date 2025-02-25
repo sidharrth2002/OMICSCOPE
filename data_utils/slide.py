@@ -235,22 +235,23 @@ class PreprocessedSlide:
     to the directory containing preprocessed patches (across all magnifications).
     """
 
-    def __init__(self, path: str, base_power: float, num_levels: int, patch_size: int, ctx_slide: torch.Tensor,
-                 ctx_patch_dim: int = None, subtype=None):
-        self.path = path
+    def __init__(self, slide_id: str, preprocessed_root: str, base_power: float, num_levels: int, patch_size: int,
+                 ctx_slide: torch.Tensor, ctx_patch_dim: int = None, subtype=None, wsi_root: str = None):
         self.patch_size = patch_size
         self.base_power = base_power
         self.ctx_slide = ctx_slide
         self.ctx_patch_dim = ctx_patch_dim
         self.subtype = subtype
 
-        self.slide_id = ".".join(os.path.split(path)[-1].split(".")[:-1])
+        self.preprocessed_root = preprocessed_root
+        self.slide_id = slide_id
+        self.wsi_root = wsi_root  # not needed, but may be useful for visualisations
 
         self.fts = []
 
         for i in range(num_levels):
             power = base_power * 2**i
-            i_fts = loader.load(self.slide_id, power)
+            i_fts = loader.load(self.preprocessed_root, self.slide_id, power)
 
             self.fts.append(i_fts)
 
@@ -279,16 +280,19 @@ class PreprocessedSlide:
         """Iterates data from magnification level `index` to `index+1`"""
         locs //= self.patch_size
 
-        if imp_cpu is None:
+        if imp_cpu is None and importance is not None:
             imp_cpu = importance.cpu()
 
         # Remove padding
         ctx_patch = ctx_patch[:npatches]
-        new_ctx_patch = new_ctx_patch[:npatches]
+        if new_ctx_patch is not None:
+            new_ctx_patch = new_ctx_patch[:npatches]
         locs = locs[:npatches]
-        imp_cpu = imp_cpu[:npatches]
+        if imp_cpu is not None:
+            imp_cpu = imp_cpu[:npatches]
 
-        ctx_slide = torch.cat((ctx_slide, new_ctx_slide[None]), dim=0)  # K x D -> (K+1) x D
+        if new_ctx_slide is not None:
+            ctx_slide = torch.cat((ctx_slide, new_ctx_slide[None]), dim=0)  # K x D -> (K+1) x D
         print("ctx_patch shape: ", ctx_patch.shape)
         print("new_ctx_patch shape: ", new_ctx_patch.shape)
         print("new_ctx_patch[:, None] shape: ", new_ctx_patch[:, None].shape)
@@ -299,7 +303,8 @@ class PreprocessedSlide:
         #     print("Appending 0s to ctx_patch to match the dimension of new_ctx_patch")
         #     ctx_patch = torch.cat((ctx_patch, torch.zeros((ctx_patch.shape[0], ctx_patch.shape[1], new_ctx_patch.shape[-1] - ctx_patch.shape[-1]), device=ctx_patch.device)), dim=-1)
         #     print("New ctx_patch shape: ", ctx_patch.shape)
-        ctx_patch = torch.cat((ctx_patch, new_ctx_patch[:, None]), dim=1)  # N x K x D -> N x (K+1) x D
+        if new_ctx_patch is not None:
+            ctx_patch = torch.cat((ctx_patch, new_ctx_patch[:, None]), dim=1)  # N x K x D -> N x (K+1) x D
 
         if keep_patches != -1:
             # Filter by importance
@@ -394,13 +399,14 @@ class PreprocessedSlide:
         } | kwargs
 
 
-def load_patch_preprocessed_slide(path: str, base_power: float, patch_size: int, ctx_dim: Tuple[int, int], num_levels: int,
-                             subtype=None) -> PreprocessedSlide:
+def load_patch_preprocessed_slide(slide_id: str, preprocessed_root: str, base_power: float, patch_size: int,
+                                  ctx_dim: Tuple[int, int], num_levels: int, subtype=None) -> PreprocessedSlide:
     ctx_slide = torch.zeros((0, ctx_dim[0]))
-    slide = PreprocessedSlide(path, base_power, num_levels, patch_size, ctx_slide, ctx_dim[1], subtype=subtype)
+    slide = PreprocessedSlide(slide_id, preprocessed_root, base_power, num_levels, patch_size, ctx_slide, ctx_dim[1], subtype=subtype)
     return slide
 
 
+# path is the full path to the WSI
 def load_raw_slide(path: str, base_power: float, patch_size: int, ctx_dim: Tuple[int, int], tissue_threshold: float = 0.1,
               prepatch: bool = True, subtype=None) -> RawSlide:
     load_locs = torch.LongTensor([[0, 0]])

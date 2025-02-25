@@ -13,18 +13,8 @@ import config as cfg
 from utils import device, EarlyStopping
 from data_utils.dataset import SlideDataset, collate_fn
 from model.interface import RecursiveModel
-from eval import SurvivalEvaluator, SubtypeClassificationEvaluator
-
-
-def get_dataloaders(train, val, test, batch_size):
-    num_workers = 0
-    prefetch = None
-
-    train_dataloader = dutils.DataLoader(train, batch_size=batch_size, shuffle=True, collate_fn=collate_fn,
-                                         num_workers=num_workers, prefetch_factor=prefetch)
-    val_dataloader = dutils.DataLoader(val, batch_size=batch_size, shuffle=False, collate_fn=collate_fn) if val is not None else None
-    test_dataloader = dutils.DataLoader(test, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
-    return train_dataloader, val_dataloader, test_dataloader
+from eval import Evaluator, SurvivalEvaluator, SubtypeClassificationEvaluator
+from train import get_dataloaders
 
 
 def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDataset, test_ds: SlideDataset, config: cfg.Config, model_dir: str):
@@ -57,27 +47,30 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
     if config.early_stopping:
         assert val_loader is not None, f"A validation set must be used when early stopping is enabled."
 
-    assert config.gradient_accumulation_steps == 1
-
     for e in range(start_epoch, config.num_epochs + 1):
         print("Epoch", e, "/", config.num_epochs)
 
-        for batch in tqdm(train_loader):
-            opt.zero_grad()
+        for idx, batch in enumerate(tqdm(train_loader)):
+            with autocast(enabled=config.use_mixed_precision):
+                hazards_or_logits, loss = utils.inference_baseline(model, batch, config.task, config.model_type)
 
-            hazards_or_logits, loss = utils.inference_end2end(config.num_levels, config.top_k_patches, model,
-                                                              config.base_power, batch, config.task,
-                                                              config.use_mixed_precision,
-                                                              config.model_config.random_rec_baseline,
-                                                              config.magnification_factor)
+            # Handle gradient accumulation
+            loss = loss / config.gradient_accumulation_steps
+            call_optimize = ((idx + 1) % config.gradient_accumulation_steps == 0) or (idx == len(train_loader) - 1)
 
             if config.use_mixed_precision:
                 scaler.scale(loss).backward()
-                scaler.step(opt)
-                scaler.update()
+
+                if call_optimize:
+                    scaler.step(opt)
+                    scaler.update()
+                    opt.zero_grad()
             else:
                 loss.backward()
-                opt.step()
+
+                if call_optimize:
+                    opt.step()
+                    opt.zero_grad()
 
             train_eval.register(batch, hazards_or_logits, loss)
 
@@ -94,10 +87,7 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
             model.eval()
             with torch.no_grad():
                 for batch in val_loader:
-                    hazards_or_logits, loss = utils.inference_end2end(config.num_levels, config.top_k_patches, model,
-                                                                      config.base_power, batch, config.task,
-                                                                      random_rec_baseline=config.model_config.random_rec_baseline,
-                                                                      magnification_factor=config.magnification_factor)
+                    hazards_or_logits, loss = utils.inference_baseline(model, batch, config.task, config.model_type)
 
                     val_eval.register(batch, hazards_or_logits, loss)
 
@@ -105,7 +95,6 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
                 wandb.log(log_dict)
                 val_eval.reset()
 
-                # val_score = log_dict["val_c-index"] if config.task == "survival" else log_dict["val_AUC"]
                 val_score = log_dict["val_loss"]
                 if config.early_stopping and early_stopping.step(val_score, model):
                     print(f"Early stopping at epoch {e+1}")
@@ -121,10 +110,7 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
     test_eval = mk_eval("test")
     with torch.no_grad():
         for batch in test_loader:
-            hazards_or_logits, loss = utils.inference_end2end(config.num_levels, config.top_k_patches, model,
-                                                              config.base_power, batch, config.task,
-                                                              random_rec_baseline=config.model_config.random_rec_baseline,
-                                                              magnification_factor=config.magnification_factor)
+            hazards_or_logits, loss = utils.inference_baseline(model, batch, config.task, config.model_type)
 
             test_eval.register(batch, hazards_or_logits, loss)
 
@@ -150,8 +136,7 @@ if __name__ == "__main__":
 
     wandb.init(
         project=args.wandb_project_name,
-        # name=f"{name}",
-        name=args.model_dir.replace("/", "_"),
+        name=f"{name}",
         config=asdict(config),
         resume="allow",
         id=run_id
@@ -163,7 +148,7 @@ if __name__ == "__main__":
         wandb.define_metric(f"{split}_accuracy", step_metric="epoch")
         wandb.define_metric(f"{split}_c-index", step_metric="epoch")
 
-    train, val, test = config.get_dataset([0.7, 0.15, 0.15], config.seed, model.procs[0].ctx_dim())
+    train, val, test = config.get_dataset([0.7, 0.15, 0.15], config.seed, (0, 0))
     if config.early_stopping:
         assert val is not None, f"Must have validation set to use early stopping"
 
@@ -171,3 +156,4 @@ if __name__ == "__main__":
     train_loop(model, train, val, test, config, args.model_dir)
 
     wandb.finish()
+

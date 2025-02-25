@@ -14,7 +14,7 @@ parser.add_argument("-n", "--name", required=True, type=str)
 
 args = parser.parse_args()
 
-names = ["KIRP", "BRCA", "COADREAD", "LUAD", "KIRC"]
+names = ["BRCA", "KIRP", "COADREAD", "LUAD", "KIRC"]
 
 root = "../models"
 found = None
@@ -26,6 +26,7 @@ for name in names:
     if os.path.isdir(start):
         found = start
         start_name = name.lower()
+        break
     else:
         todo.append(name)
 
@@ -42,6 +43,15 @@ with open(confpath, "r") as file:
     config = json.loads(file.read())
 
 # config["root_name"] = args.name
+
+if "task" in config and config["task"] == "subtype_classification":
+    print("Classification mode: limiting to BRCA/KIRP/LUAD")
+    names = ["BRCA", "KIRP", "LUAD"]
+if "panther_splits" in config and config["panther_splits"]:
+    names = ["BRCA", "UCEC", "COADREAD", "LUAD", "KIRC"]
+
+todo = [i for i in names if i.lower() != start_name]
+
 
 wsi_dir = lambda s: config["wsi_dir"].replace(start_name, s.lower())
 csv_path = lambda s: config["csv_path"].replace(start_name, s.lower())
@@ -60,6 +70,22 @@ for ds in todo:
     if "preprocess_dir" in goal_conf:
         goal_conf["preprocess_dir"] = preprocess_dir(ds)
     goal_conf["root_name"] = f"{ds}_" + args.name
+
+    if "task" in goal_conf and goal_conf["task"] == "subtype_classification":
+        if ds == "brca":
+            if "multi_dataset" in goal_conf:
+                goal_conf.pop("multi_dataset")
+            goal_conf["filter_to_subtypes"] = ["IDC", "ILC"]
+        elif ds == "kirp":
+            if "filter_to_subtypes" in goal_conf:
+                goal_conf.pop("filter_to_subtypes")
+            goal_conf["multi_dataset"] = ["kirp", "kirc", "kich"]
+        elif ds == "luad":
+            if "filter_to_subtypes" in goal_conf:
+                goal_conf.pop("filter_to_subtypes")
+            goal_conf["multi_dataset"] = ["luad", "lusc"]
+        else:
+            raise ValueError("Unsupported subtype classification dataset " + ds + " - only BRCA/KIRP/LUAD supported.")
 
     path = join(root, f"{ds}_" + args.name + "_0")
     cpath = join(path, "config.json")
@@ -86,10 +112,6 @@ for ds in todo:
                 print("Keys clash:", current_diff)
                 print(" Current keys:", [c[i] for i in current_diff])
                 print(" Goal keys:", [goal_conf[i] for i in current_diff])
-            choice = input("Overwrite? (y/n) ").upper()
-            if choice == "Y":
-                with open(cpath, "w") as file:
-                    file.write(json.dumps(goal_conf, indent=4))
-            else:
-                print("Oke, skipping")
-        print()
+            print("Overwriting...")
+            with open(cpath, "w") as file:
+                file.write(json.dumps(goal_conf, indent=4))

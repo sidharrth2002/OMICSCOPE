@@ -4,13 +4,15 @@ import os
 from os.path import join
 import wandb
 import math
-from typing import Tuple, Callable, Dict
 import pickle
+from typing import Tuple, Callable, Dict, List
+from torch.cuda.amp import GradScaler, autocast
+
+from preprocess import loader
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 MAX_WORKERS = 8
-print("MAX WORKERS =", MAX_WORKERS)
 
 
 def positional_encoding(length, dim, device=torch.device('cpu'), k=10000.0):
@@ -110,11 +112,9 @@ def apply_to_non_padded(network: Callable, xs: torch.Tensor, transcriptomics: to
     `network`'s output must be of dimension `output_dim`.
     """
     batch_size, max_seq = xs.shape[:2]
-    out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device)
-    out[inds] = network({
-        "contextualised_features": xs[inds], 
-        "transcriptomics": transcriptomics[inds]
-    })
+    network_out = network(xs[inds])
+    out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device, dtype=network_out.dtype)
+    out[inds] = network_out
     return out
 
 
@@ -228,7 +228,8 @@ def inference(model, depth, power, batch, importance_penalty, task: str):
 
 
 # todo; should probably just move somewhere else to prevent circular imports
-def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: str):
+def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: str, use_mixed_precision: bool = False,
+                      random_rec_baseline: bool = False, magnification_factor: int = 2):
     from data_utils import patch_batch  # circular imports...
     from data_utils.slide import PreprocessedSlide
     from data_utils.dataset import collate_fn
@@ -240,33 +241,45 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
 
     for i in range(num_levels):
         locs_cpu = batch["locs"]
-        data = patch_batch.from_batch(batch, device)
-        out = model(i, data)
 
-        print(f"Level {i} inference done")
+        with autocast(enabled=use_mixed_precision):
+            data = patch_batch.from_batch(batch, device)
+            out = model(i, data)
 
-        importance = out["importance"]
+            importance = out["importance"]
+            new_ctx_slide = out["ctx_slide"]
+            new_ctx_patch = out["ctx_patch"]
 
-        new_ctx_slide = out["ctx_slide"]
-        new_ctx_patch = out["ctx_patch"]
+        if random_rec_baseline:
+            importance = torch.randn_like(importance)
 
         if i != num_levels - 1:
             new_batch = []
-            imp_cpu = importance.cpu()
+            imp_cpu = importance.cpu().float()
 
             for j in range(len(slides)):
                 print(f"Processing slide {j} at level {i}")
                 slide: PreprocessedSlide = slides[j]
-                print("Iterating through slide")
-                x = slide.iter(i, data.num_ims[j], locs_cpu[j], data.ctx_slide[j], data.ctx_patch[j], importance[j],
+
+                ind = i if magnification_factor == 2 else 2 * i
+
+                x = slide.iter(ind, data.num_ims[j], locs_cpu[j], data.ctx_slide[j], data.ctx_patch[j], importance[j],
                                new_ctx_slide[j], new_ctx_patch[j], keep_patches[i], imp_cpu[j])
-                print("Done iterating through slide")
+
+                if magnification_factor == 4:
+                    new_fts = x["fts"]
+                    ctx_patch = x["ctx_patch"]
+                    ctx_slide = x["ctx_slide"]
+                    locs = x["locs"]
+                    num_ims = new_fts.shape[0]
+                    x = slide.iter(ind + 1, num_ims, locs, ctx_slide, ctx_patch, None,None, None, -1)
+
                 new_batch.append(x)
 
             batch = collate_fn(new_batch)
             power *= 2
 
-    logits = out["logits"]
+    logits = out["logits"].float()
 
     if task == "survival":
         labels = batch0["survival_bin"].to(device)
@@ -280,6 +293,38 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
 
     elif task == "subtype_classification":
         subtypes = batch0["subtype"].to(device)
+        loss = F.cross_entropy(logits, subtypes)
+
+        return logits, loss
+
+
+def inference_baseline(model, batch, task: str, model_type: str):
+    from data_utils import patch_batch  # circular imports...
+
+    model_type = model_type.lower()
+
+    data = patch_batch.from_batch(batch, device)
+
+    if model_type == "zoommil":
+        assert data.batch_size == 1, "ZoomMIL only supports a batch size of 1"
+        slide = batch["slide"][0]
+        data = convert_to_zoommil_fts(slide, model.power_levels)
+        data = [i[None].to(device) for i in data]  # add unit batch dimension + move to cuda
+
+    logits = model(data)
+
+    if task == "survival":
+        labels = batch["survival_bin"].to(device)
+        censors = batch["censored"].to(device)
+
+        hazards = torch.sigmoid(logits)
+
+        loss = nll_loss(hazards, labels, censors)
+
+        return hazards, loss
+
+    elif task == "subtype_classification":
+        subtypes = batch["subtype"].to(device)
         loss = F.cross_entropy(logits, subtypes)
 
         return logits, loss
@@ -345,3 +390,115 @@ def todevice(x, device):
         return [todevice(i, device) for i in x]
     else:
         return x
+
+
+# From HEALNet
+class EarlyStopping:
+    def __init__(self, patience=5, verbose=False, mode='min'):
+        """
+        Constructor for early stopping.
+
+        Parameters:
+        - patience (int): How many epochs to wait before stopping once performance stops improving.
+        - verbose (bool): If True, prints out a message for each validation metric improvement.
+        - mode (str): One of ['min', 'max']. Minimize (e.g., loss) or maximize (e.g., accuracy) the metric.
+        """
+        assert mode in ['min', 'max'], "Mode must be 'min' or 'max'"
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+
+        if mode == 'min':
+            self.best_metric = float('inf')
+            self.operator = torch.lt
+        else:
+            self.best_metric = float('-inf')
+            self.operator = torch.gt
+
+        self.best_model_weights = None
+        self.should_stop = False
+
+    def step(self, metric, model):
+        """
+        Check the early stopping conditions.
+
+        Parameters:
+        - metric (float): The latest validation metric (loss, accuracy, etc.).
+        - model (torch.nn.Module): The model being trained.
+
+        Returns:
+        - bool: True if early stopping conditions met, False otherwise.
+        """
+        if type(metric) == float: # convert to tensor if necessary
+            metric = torch.tensor(metric)
+
+        if self.operator(metric, self.best_metric):
+            if self.verbose:
+                print(f"Validation metric improved from {self.best_metric:.4f} to {metric:.4f}. Saving model weights.")
+            self.best_metric = metric
+            self.counter = 0
+            self.best_model_weights = model.state_dict().copy()
+        else:
+            self.counter += 1
+            if self.verbose:
+                print(f"Validation metric did not improve. Patience: {self.counter}/{self.patience}.")
+            if self.counter >= self.patience:
+                self.should_stop = True
+
+        return self.should_stop
+
+    def load_best_weights(self, model):
+        """
+        Load the best model weights.
+
+        Parameters:
+        - model (torch.nn.Module): The model to which the best weights should be loaded.
+        """
+        if self.verbose:
+            print(f"Loading best model weights with validation metric value: {self.best_metric:.4f}")
+        model.load_state_dict(self.best_model_weights)
+        return model
+
+
+def convert_to_zoommil_fts(slide, power_levels: List[float]) -> List[torch.Tensor]:
+    """
+    Util to convert from our PreprocessedSlide to the specific 1D format zoommil expects.
+    Output shape: [N x D, (M^2 N) x D, (M^4 N) x D]
+      (in the case power_levels = [x, mx, m^2 x]. Also works for e.g. [x, m x, m^3 x])
+    """
+    data = []
+    for power in power_levels:
+        fts = loader.load(slide.preprocessed_root, slide.slide_id, power)  # H x W x D
+        data.append(fts)
+
+    # Background filter
+    d0 = data[0]
+    mask = torch.sum(d0.abs(), dim=-1) > 0  # [H x W] bool
+    xs, ys = mask.nonzero(as_tuple=True)
+
+    output = []
+
+    # Get all patches at each level, such that
+    for i, (tensor, power) in enumerate(zip(data, power_levels)):
+        scale = round(power / power_levels[0])
+        h, w, _ = tensor.shape
+
+        # Scale up coordinates. E.g. x -> [2x, 2x+1] on the second iter
+        scaled_xs = (xs * scale).view(-1, 1) + torch.arange(scale).view(1, -1)
+        scaled_ys = (ys * scale).view(-1, 1) + torch.arange(scale).view(1, -1)
+
+        #  (x, y) -> [(2x, 2y), (2x, 2y+1), (2x+1, 2y), (2x+1, 2y+1)]
+        scaled_coords = torch.stack([torch.cartesian_prod(sx, sy) for sx, sy in zip(scaled_xs, scaled_ys)], dim=0)
+        patch_coords = scaled_coords.view(-1, 2)
+
+        # Clamp coordinates to be within bounds
+        #  (coords are *almost always* within bounds. there's just the occasional off-by-one error
+        #   at the edges due to slide dimensions not being perfect powers of two.)
+        out_of_bounds = (patch_coords[:, 0] >= tensor.shape[0]) | (patch_coords[:, 1] >= tensor.shape[1])
+        patch_coords[out_of_bounds] *= 0  # just query (0, 0), we will zero them anyway after
+        gathered_patches = tensor[patch_coords[:, 0], patch_coords[:, 1]]
+        gathered_patches[out_of_bounds] *= 0
+
+        output.append(gathered_patches)
+
+    return output

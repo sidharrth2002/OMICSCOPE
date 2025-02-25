@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from os import path
 import json
@@ -6,8 +7,8 @@ from typing import List
 
 from data_utils.dataset import load_splits
 from model.paths import PATHSProcessor
+from model.baselines import ABMIL, TransMIL, ILRA, ZoomMIL
 from model.interface import RecursiveModel
-from preprocess import loader
 
 
 @dataclass
@@ -22,6 +23,7 @@ class PATHSProcessorConfig(ModelConfig):
     slide_ctx_mode: str = "residual"  # residual / concat / none
 
     patch_embed_dim: int = 1024
+    model_dim: int = None  # project embeds to model_dim if it is not None
     dropout: float = 0.0
     patch_size: int = 256  # only needed for visualisation etc. and not at train time
 
@@ -37,6 +39,47 @@ class PATHSProcessorConfig(ModelConfig):
     lstm: bool = True
     
     add_transcriptomics: bool = False
+
+    random_rec_baseline: bool = False  # random patch selection. just used for ablation
+
+
+@dataclass
+class ABMILConfig(ModelConfig):
+    patch_embed_dim: int = 1024
+    patch_size: int = 256
+
+
+@dataclass
+class TransMILConfig(ModelConfig):
+    patch_embed_dim: int = 1024
+    patch_size: int = 256
+    transformer_dim: int = 512
+
+
+@dataclass
+class ILRAConfig(ModelConfig):
+    patch_embed_dim: int = 1024
+    patch_size: int = 256
+
+    num_layers: int = 2
+    hidden_feat: int = 256
+    num_heads: int = 8
+    topk: int = 64  # default in original codebase is 2, but paper suggests 64
+    ln: bool = False
+
+
+@dataclass
+class ZoomMILConfig(ModelConfig):
+    power_levels: List[float]   # Magnification levels e.g. [2.5, 5, 10]. Note: has to be of length three.
+
+    patch_embed_dim: int = 1024
+    patch_size: int = 256
+
+    hidden_feat_dim: int = 256  # Hidden layer feature dimension.
+    out_feat_dim: int = 512     # Output feature dimension.
+    k_sample: int = 12          # Number of samples (k) to zoom-in at next higher magnification.
+    k_sigma: float = 0.002      # Perturbation sigma.
+    dropout: float = None
 
 
 # Training stats etc (model independent)
@@ -56,26 +99,33 @@ class Config:
     # Data
     wsi_dir: str
     csv_path: str
+    preprocess_dir: str = None
+
+    # This is a bit of a workaround. The codebase was designed with single datasets in mind,
+    #  but kidney and lung classification require multiple datasets (KIRP/KIRC/KICH and LUSC/LUAD respectively)
+    #  setting multi_dataset=["kirp", "kirc", "kich"] causes all three datasets to be read.
+    multi_dataset: List[str] = None
+
     nbins: int = 4
     loss: str = "nll"
 
     task: str = "survival"  # survival / subtype_classification
     filter_to_subtypes: List[str] = None
 
-    preprocess_dir: str = None
-
     # Training
     batch_size: int = 32
-    save_epochs: int = 10
+    gradient_accumulation_steps: int = 1  # measured in batches
     eval_epochs: int = 1
     lr: float = 2e-5
     lr_decay_per_epoch: float = 0.99
     seed: int = 0
-    early_stopping: bool = False
     weight_decay: float = 1e-2
-    min_epochs: int = 0  # min epochs for early stopping
+    early_stopping: bool = False
+    early_stopping_patience: int = 5
 
     root_name: str = ""  # for tracking multiple folds
+
+    use_mixed_precision: bool = False
 
     hipt_splits: bool = False
     hipt_val_proportion: float = 0   # Split part of the HIPT training set off into a val set
@@ -106,22 +156,41 @@ class Config:
             c = data["model_config"]
             if c.lstm:
                 assert c.hierarchical_ctx, "If LSTM mode is enabled, hierarchical context must be enabled."
+        elif data["model_type"] == "abmil":
+            data["model_config"] = ABMILConfig(**data["model_config"])
+        elif data["model_type"] == "transmil":
+            data["model_config"] = TransMILConfig(**data["model_config"])
+        elif data["model_type"].lower() == "ilra":
+            data["model_config"] = ILRAConfig(**data["model_config"])
+        elif data["model_type"].lower() == "zoommil":
+            data["model_config"] = ZoomMILConfig(**data["model_config"])
         else:
             raise NotImplementedError(f"Unknown model type '{data['model_type']}'")
 
         config = Config(**data)
 
-        if not test_mode:
-            loader.set_preprocess_dir(config.preprocess_dir)
+        assert config.task in ["subtype_classification", "survival"], f"Unknown task '{config.task}'."
+        assert config.magnification_factor in [2, 4], f"Only M=2 and M=4 supported."
+
+        if config.multi_dataset is not None:
+            assert config.task == "subtype_classification", "multi_dataset only supported for subtype classification"
 
         return config
 
     def power_levels(self):
         return [self.base_power * self.magnification_factor ** i for i in range(self.num_levels)]
 
-    def get_model(self) -> RecursiveModel:
+    def get_model(self):
         if self.model_type == "PATHS":
             return RecursiveModel(PATHSProcessor, self.model_config, train_config=self)
+        elif self.model_type == "abmil":
+            return ABMIL(self.model_config, self)
+        elif self.model_type == "transmil":
+            return TransMIL(self.model_config, self)
+        elif self.model_type.lower() == "ilra":
+            return ILRA(self.model_config, self)
+        elif self.model_type.lower() == "zoommil":
+            return ZoomMIL(self.model_config, self)
         else:
             raise NotImplementedError(f"Unknown model '{self.model_type}'.")
 
@@ -131,3 +200,11 @@ class Config:
 
     def get_lr_scheduler(self, optimizer):
         return ExponentialLR(optimizer, self.lr_decay_per_epoch)
+
+    def num_logits(self) -> int:
+        if self.task == "survival":
+            return self.nbins
+        elif self.filter_to_subtypes != None:
+            return len(self.filter_to_subtypes)
+        else:
+            return len(self.multi_dataset)

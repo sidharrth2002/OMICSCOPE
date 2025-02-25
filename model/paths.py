@@ -23,16 +23,18 @@ class PATHSProcessor(nn.Module, Processor):
         self.depth = depth
 
         # Output dimensionality
-        num_logits = (
-            train_config.nbins
-            if train_config.task == "survival"
-            else len(train_config.filter_to_subtypes)
-        )
+        num_logits = train_config.num_logits()
 
         self.config = config
         self.train_config = train_config
 
-        self.dim = config.patch_embed_dim
+        if config.model_dim is None:
+            self.proj_in = nn.Identity()
+            self.dim = config.patch_embed_dim
+        else:
+            self.proj_in = nn.Linear(config.patch_embed_dim, config.model_dim, bias=False)
+            self.dim = config.model_dim
+
         self.slide_ctx_dim = config.trans_dim
 
         # Slide context can either be concatenated or summed; in our paper we choose sum (mode="residual")
@@ -88,6 +90,7 @@ class PATHSProcessor(nn.Module, Processor):
         transcriptomics = data.transcriptomics
 
         # print('transcriptomics is ', transcriptomics)
+        patch_features = self.proj_in(patch_features)
 
         ################# Apply LSTM
         if self.config.lstm:
