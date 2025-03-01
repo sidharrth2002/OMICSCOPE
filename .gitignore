@@ -4,6 +4,9 @@ out/
 lightning_logs/**
 wandb/**
 models/**/*.pt
+models/**/*.pkl
+models_old/**/*.pkl
+models_old/**/*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

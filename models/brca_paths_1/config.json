@@ -1,7 +1,7 @@
 {
-    "wsi_dir": "/home/sn666/rds/rds-cl-acs-qRKC0ovsKR0/sn666/healnet/data/tcga/tcga/wsi/brca",
-    "preprocess_dir": "/home/sn666/rds/rds-cl-acs-qRKC0ovsKR0/sn666/healnet/data/tcga/tcga/wsi/brca_zzb20_uni",
-    "csv_path": "/home/sn666/rds/rds-cl-acs-qRKC0ovsKR0/sn666/healnet/data/tcga/tcga/omic/tcga_brca_all_clean.csv.zip",
+    "wsi_dir": "/home/zzb20/tcga/tcga/wsi/brca",
+    "preprocess_dir": "/home/zzb20/tcga/tcga/wsi/brca_zzb20_uni",
+    "csv_path": "/home/zzb20/tcga/tcga/omic/tcga_brca_all_clean.csv.zip",
     "batch_size": 32,
     "save_epochs": 10,
     "eval_epochs": 1,
@@ -11,7 +11,9 @@
     "base_power": 0.625,
     "magnification_factor": 2,
     "num_levels": 5,
-    "num_epochs": 40,
+    "num_epochs": [
+        40
+    ],
     "min_epochs": 0,
     "top_k_patches": 20,
     "early_stopping": false,
@@ -30,8 +32,7 @@
         "pos_encoding_mode": "2d",
         "importance_mlp_hidden_dim": 128,
         "hierarchical_ctx_mlp_hidden_dim": 256,
-        "lstm": true,
-        "add_transcriptomics": false
+        "lstm": true
     },
     "root_name": "brca_paths"
 }
