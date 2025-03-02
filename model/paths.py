@@ -8,6 +8,52 @@ from .aggregator import TransformerAggregator
 import config as cfg
 import utils
 from model.transcriptomics_engine import get_num_transcriptomics_features
+import torch.nn.functional as F
+
+
+class CombineTranscriptomicsPatchCtx(nn.Module):
+    def __init__(self, dim, hdim, num_transcriptomics_features, dropout_p=0.1):
+        super(CombineTranscriptomicsPatchCtx, self).__init__()
+        # Define input and output dimensions
+        input_dim = dim + hdim + num_transcriptomics_features
+        output_dim = dim + hdim
+
+        # First transformation with layer normalization and dropout
+        self.fc1 = nn.Linear(input_dim, output_dim)
+        self.ln1 = nn.LayerNorm(output_dim)
+        self.dropout1 = nn.Dropout(p=dropout_p)
+
+        # Second transformation with layer normalization and dropout
+        self.fc2 = nn.Linear(output_dim, output_dim)
+        self.ln2 = nn.LayerNorm(output_dim)
+        self.dropout2 = nn.Dropout(p=dropout_p)
+
+        # Residual connection: if input dimension is not equal to output dimension, project it.
+        self.residual_proj = (
+            nn.Linear(input_dim, output_dim)
+            if input_dim != output_dim
+            else nn.Identity()
+        )
+
+    def forward(self, x):
+        # x shape: [batch_size, input_dim]
+        residual = self.residual_proj(x)
+
+        # First layer transformation
+        out = self.fc1(x)
+        out = self.ln1(out)
+        out = F.relu(out)
+        out = self.dropout1(out)
+
+        # Second layer transformation
+        out = self.fc2(out)
+        out = self.ln2(out)
+        out = self.dropout2(out)
+
+        # Residual addition with activation
+        out = F.relu(out + residual)
+        return out
+
 
 class PATHSProcessor(nn.Module, Processor):
     """
@@ -32,7 +78,9 @@ class PATHSProcessor(nn.Module, Processor):
             self.proj_in = nn.Identity()
             self.dim = config.patch_embed_dim
         else:
-            self.proj_in = nn.Linear(config.patch_embed_dim, config.model_dim, bias=False)
+            self.proj_in = nn.Linear(
+                config.patch_embed_dim, config.model_dim, bias=False
+            )
             self.dim = config.model_dim
 
         self.slide_ctx_dim = config.trans_dim
@@ -46,18 +94,18 @@ class PATHSProcessor(nn.Module, Processor):
             self.classification_layer = nn.Linear(self.slide_ctx_dim, num_logits)
 
         # Per-patch MLP to produce importance values \alpha
-        if self.config.add_transcriptomics:
-            self.importance_mlp = nn.Sequential(
-                nn.Linear(self.dim + get_num_transcriptomics_features(), config.importance_mlp_hidden_dim),
-                nn.ReLU(),
-                nn.Linear(config.importance_mlp_hidden_dim, 1),
-            )
-        else:
-            self.importance_mlp = nn.Sequential(
-                nn.Linear(self.dim, config.importance_mlp_hidden_dim),
-                nn.ReLU(),
-                nn.Linear(config.importance_mlp_hidden_dim, 1),
-            )
+        # if self.config.add_transcriptomics:
+        #     self.importance_mlp = nn.Sequential(
+        #         nn.Linear(self.dim + get_num_transcriptomics_features(), config.importance_mlp_hidden_dim),
+        #         nn.ReLU(),
+        #         nn.Linear(config.importance_mlp_hidden_dim, 1),
+        #     )
+        # else:
+        self.importance_mlp = nn.Sequential(
+            nn.Linear(self.dim, config.importance_mlp_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(config.importance_mlp_hidden_dim, 1),
+        )
 
         if config.lstm:
             self.hdim = config.hierarchical_ctx_mlp_hidden_dim
@@ -78,8 +126,18 @@ class PATHSProcessor(nn.Module, Processor):
             layers=config.trans_layers,
             dropout=config.dropout,
         )
-        
-        self.transcriptomics_projector = nn.Linear(get_num_transcriptomics_features(), self.dim + self.hdim)
+
+        # self.transcriptomics_projector = nn.Linear(get_num_transcriptomics_features(), self.dim + self.hdim)
+
+        # make two-input MLP (one input is existing patch context, the other is transcriptomics, then output is the same size as the patch context)
+        # self.combine_transcriptomics_patch_ctx = nn.Sequential(
+        #     nn.Linear(self.dim + self.hdim + get_num_transcriptomics_features(), self.dim + self.hdim),
+        #     nn.ReLU(),
+        #     nn.Linear(self.dim + self.hdim, self.dim + self.hdim)
+        # )
+        self.combine_transcriptomics_patch_ctx = CombineTranscriptomicsPatchCtx(
+            self.dim, self.hdim, get_num_transcriptomics_features(), dropout_p=0.2
+        )
 
     def process(self, data: PatchBatch, lstm=None) -> Dict:
         """
@@ -114,7 +172,11 @@ class PATHSProcessor(nn.Module, Processor):
                 # print('self.dim is ', self.dim)
                 # print('self.hdim is ', self.hdim)
                 # print('self.dim + self.hdim is ', self.dim + self.hdim)
-                assert lstm_state.shape[-1] == self.dim + self.hdim or lstm_state.shape[-1] == self.dim + self.hdim + transcriptomics.shape[-1]
+                assert (
+                    lstm_state.shape[-1] == self.dim + self.hdim
+                    or lstm_state.shape[-1]
+                    == self.dim + self.hdim + transcriptomics.shape[-1]
+                )
                 hs, cs = lstm_state[..., : self.dim], lstm_state[..., self.dim :]
 
             # print('patch_features shape is ', patch_features.shape)
@@ -127,27 +189,31 @@ class PATHSProcessor(nn.Module, Processor):
             # print('patch_features shape before adding hs is ', patch_features.shape)
             patch_features = patch_features + hs  # produce Y from X
             # print('patch_features shape after adding hs is ', patch_features.shape)
-            
+
             patch_ctx = torch.concat((hs, cs), dim=-1)
             # print('patch_ctx shape after concatenating hs and cs is ', patch_ctx.shape)
         ################# Get importance values \alpha
         # (this method ensures padding is assigned 0 importance: apply the MLP+sigmoid only to non-background patches)
-        if self.config.add_transcriptomics:
-            importance = utils.apply_to_non_padded(
-                lambda xs: torch.sigmoid(self.importance_mlp(torch.concat((xs["contextualised_features"], xs["transcriptomics"].clone().detach()), dim=-1))),
-                patch_features,
-                transcriptomics,
-                data.valid_inds,
-                1,
-            )[..., 0]
-        else:
-            importance = utils.apply_to_non_padded(
-                lambda xs: torch.sigmoid(self.importance_mlp(xs["contextualised_features"])),
-                patch_features,
-                transcriptomics,
-                data.valid_inds,
-                1,
-            )[..., 0]
+
+        # TODO: put this back in later
+        # if self.config.add_transcriptomics:
+        #     importance = utils.apply_to_non_padded(
+        #         lambda xs: torch.sigmoid(self.importance_mlp(torch.concat((xs["contextualised_features"], xs["transcriptomics"].clone().detach()), dim=-1))),
+        #         patch_features,
+        #         transcriptomics,
+        #         data.valid_inds,
+        #         1,
+        #     )[..., 0]
+        # else:
+        importance = utils.apply_to_non_padded(
+            lambda xs: torch.sigmoid(
+                self.importance_mlp(xs["contextualised_features"])
+            ),
+            patch_features,
+            transcriptomics,
+            data.valid_inds,
+            1,
+        )[..., 0]
         if self.config.importance_mode == "mul":
             # produce Z from Y
             patch_features = patch_features * importance[..., None]
@@ -166,18 +232,25 @@ class PATHSProcessor(nn.Module, Processor):
             patch_ctx = patch_features
 
         # append transcriptomics features to patch context
-        # if self.config.add_transcriptomics and (transcriptomics is not None):
-        #     print('appending transcriptomics to patch_ctx')
-        #     print('patch_ctx shape is ', patch_ctx.shape)
-        #     print('transcriptomics shape is ', transcriptomics.shape)
-        #     # patch_ctx = torch.cat((patch_ctx, transcriptomics), dim=-1)
-        #     patch_ctx = patch_ctx + self.transcriptomics_projector(transcriptomics.clone().detach())
-            
-        #     # torch.cat((
-        #     #     patch_ctx,
-        #     #     self.transcriptomics_projector(transcriptomics.clone().detach())
-        #     # ), dim=-1)
-        #     print('patch_ctx shape after concatenating projected transcriptomics is ', patch_ctx.shape)
+        if self.config.add_transcriptomics and (transcriptomics is not None):
+            # print("appending transcriptomics to patch_ctx")
+            # print('patch_ctx shape is ', patch_ctx.shape)
+            # print('transcriptomics shape is ', transcriptomics.shape)
+            # concatted = torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
+            # print('concatted shape is ', concatted.shape)
+            # print('self.dim is ', self.dim)
+            # print('self.hdim is ', self.hdim)
+
+            patch_ctx = self.combine_transcriptomics_patch_ctx(
+                torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
+            )
+
+            # This is a really bad way of combining, projecting to a higher dimension is always gonna be bad
+            # torch.cat((
+            #     patch_ctx,
+            #     self.transcriptomics_projector(transcriptomics.clone().detach())
+            # ), dim=-1)
+            # print('patch_ctx shape after concatenating projected transcriptomics is ', patch_ctx.shape)
 
         ################# Global aggregation
         d = self.config.trans_dim
@@ -223,11 +296,13 @@ class PATHSProcessor(nn.Module, Processor):
             return self.slide_ctx_dim, self.dim + self.hdim
         return self.slide_ctx_dim, self.dim
 
+
 def load(slide_id, power: float):
     assert root_dir is not None, f"set_preprocess_dir must be called before load!"
     path = join(root_dir, slide_id + f"_{power:.3f}.pt")
     assert os.path.isfile(path), f"Pre-process load: path '{path}' not found!"
     return torch.load(path)
 
-if __name__ == '__main__':
-    print('this runs')
+
+if __name__ == "__main__":
+    print("this runs")

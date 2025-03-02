@@ -293,9 +293,9 @@ class PreprocessedSlide:
 
         if new_ctx_slide is not None:
             ctx_slide = torch.cat((ctx_slide, new_ctx_slide[None]), dim=0)  # K x D -> (K+1) x D
-        print("ctx_patch shape: ", ctx_patch.shape)
-        print("new_ctx_patch shape: ", new_ctx_patch.shape)
-        print("new_ctx_patch[:, None] shape: ", new_ctx_patch[:, None].shape)
+        # print("ctx_patch shape: ", ctx_patch.shape)
+        # print("new_ctx_patch shape: ", new_ctx_patch.shape)
+        # print("new_ctx_patch[:, None] shape: ", new_ctx_patch[:, None].shape)
         # if ctx_patch.shape[-1] != new_ctx_patch.shape[-1]:
         #     # this might happen at the first iteration
         #     # append 0s to the last dimension of ctx_patch to match the dimension of new_ctx_patch

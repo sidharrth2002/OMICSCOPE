@@ -94,11 +94,12 @@ class PatchBatch:
 
 def from_batch(batch: Dict, device) -> PatchBatch:
     # TODO: Extract transcriptomics here
-    print(f"batch keys: {batch.keys()}")
-    print(f"batch fts shape: {batch['fts'].shape}")
+    # print(f"batch keys: {batch.keys()}")
+    # print(f"batch fts shape: {batch['fts'].shape}")
     transcriptomics = get_transcriptomics_data(batch['fts'])
-    print(f"transcriptomics: {transcriptomics[0].shape}")
+    # print(f"transcriptomics: {transcriptomics[0].shape}")
     batch['transcriptomics'] = transcriptomics[0]
+    # print(f"transcriptomics in from_batch: {batch['transcriptomics']}")
     batch = {i: utils.todevice(j, device) for i, j in batch.items()}
     return PatchBatch(**batch)
 

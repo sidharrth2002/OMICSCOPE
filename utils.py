@@ -105,6 +105,18 @@ def padding_mask(xs: torch.Tensor, lengths: torch.LongTensor):
     return torch.arange(max_seq_length, device=lengths.device)[None] >= lengths[:, None]
 
 
+# def apply_to_non_padded(network: Callable, xs: torch.Tensor, transcriptomics: torch.Tensor, inds: torch.BoolTensor, output_dim: int):
+#     """
+#     Applies a module to only the non-padded indices in sequence `xs`. Padded locations are populated with zeros.
+#     `inds` gives the non-padded indices.
+#     `network`'s output must be of dimension `output_dim`.
+#     """
+#     batch_size, max_seq = xs.shape[:2]
+#     network_out = network(xs[inds])
+#     out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device, dtype=network_out.dtype)
+#     out[inds] = network_out
+#     return out
+
 def apply_to_non_padded(network: Callable, xs: torch.Tensor, transcriptomics: torch.Tensor, inds: torch.BoolTensor, output_dim: int):
     """
     Applies a module to only the non-padded indices in sequence `xs`. Padded locations are populated with zeros.
@@ -112,9 +124,11 @@ def apply_to_non_padded(network: Callable, xs: torch.Tensor, transcriptomics: to
     `network`'s output must be of dimension `output_dim`.
     """
     batch_size, max_seq = xs.shape[:2]
-    network_out = network(xs[inds])
-    out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device, dtype=network_out.dtype)
-    out[inds] = network_out
+    out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device)
+    out[inds] = network({
+        "contextualised_features": xs[inds], 
+        "transcriptomics": transcriptomics[inds]
+    })
     return out
 
 
@@ -258,7 +272,7 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
             imp_cpu = importance.cpu().float()
 
             for j in range(len(slides)):
-                print(f"Processing slide {j} at level {i}")
+                # print(f"Processing slide {j} at level {i}")
                 slide: PreprocessedSlide = slides[j]
 
                 ind = i if magnification_factor == 2 else 2 * i

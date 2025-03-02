@@ -20,14 +20,35 @@ def get_dataloaders(train, val, test, batch_size):
     num_workers = 0
     prefetch = None
 
-    train_dataloader = dutils.DataLoader(train, batch_size=batch_size, shuffle=True, collate_fn=collate_fn,
-                                         num_workers=num_workers, prefetch_factor=prefetch)
-    val_dataloader = dutils.DataLoader(val, batch_size=batch_size, shuffle=False, collate_fn=collate_fn) if val is not None else None
-    test_dataloader = dutils.DataLoader(test, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+    train_dataloader = dutils.DataLoader(
+        train,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        num_workers=num_workers,
+        prefetch_factor=prefetch,
+    )
+    val_dataloader = (
+        dutils.DataLoader(
+            val, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
+        )
+        if val is not None
+        else None
+    )
+    test_dataloader = dutils.DataLoader(
+        test, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
+    )
     return train_dataloader, val_dataloader, test_dataloader
 
 
-def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDataset, test_ds: SlideDataset, config: cfg.Config, model_dir: str):
+def train_loop(
+    model: RecursiveModel,
+    train_ds: SlideDataset,
+    val_ds: SlideDataset,
+    test_ds: SlideDataset,
+    config: cfg.Config,
+    model_dir: str,
+):
     def mk_eval(split: str):
         if config.task == "subtype_classification":
             return SubtypeClassificationEvaluator(split, config.num_logits())
@@ -45,17 +66,25 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
 
     train_eval, val_eval = mk_eval("train"), mk_eval("val")
 
-    opt = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+    opt = torch.optim.AdamW(
+        model.parameters(), lr=config.lr, weight_decay=config.weight_decay
+    )
     lr_scheduler = config.get_lr_scheduler(opt)
 
-    train_loader, val_loader, test_loader = get_dataloaders(train_ds, val_ds, test_ds, config.batch_size[0])
+    train_loader, val_loader, test_loader = get_dataloaders(
+        train_ds, val_ds, test_ds, config.batch_size[0]
+    )
 
     scaler = GradScaler()
 
     # For early stopping on val loss
-    early_stopping = EarlyStopping(patience=config.early_stopping_patience, mode="min", verbose=True)
+    early_stopping = EarlyStopping(
+        patience=config.early_stopping_patience, mode="min", verbose=True
+    )
     if config.early_stopping:
-        assert val_loader is not None, f"A validation set must be used when early stopping is enabled."
+        assert (
+            val_loader is not None
+        ), f"A validation set must be used when early stopping is enabled."
 
     assert config.gradient_accumulation_steps == 1
 
@@ -65,11 +94,17 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
         for batch in tqdm(train_loader):
             opt.zero_grad()
 
-            hazards_or_logits, loss = utils.inference_end2end(config.num_levels, config.top_k_patches, model,
-                                                              config.base_power, batch, config.task,
-                                                              config.use_mixed_precision,
-                                                              config.model_config.random_rec_baseline,
-                                                              config.magnification_factor)
+            hazards_or_logits, loss = utils.inference_end2end(
+                config.num_levels,
+                config.top_k_patches,
+                model,
+                config.base_power,
+                batch,
+                config.task,
+                config.use_mixed_precision,
+                config.model_config.random_rec_baseline,
+                config.magnification_factor,
+            )
 
             if config.use_mixed_precision:
                 scaler.scale(loss).backward()
@@ -94,10 +129,16 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
             model.eval()
             with torch.no_grad():
                 for batch in val_loader:
-                    hazards_or_logits, loss = utils.inference_end2end(config.num_levels, config.top_k_patches, model,
-                                                                      config.base_power, batch, config.task,
-                                                                      random_rec_baseline=config.model_config.random_rec_baseline,
-                                                                      magnification_factor=config.magnification_factor)
+                    hazards_or_logits, loss = utils.inference_end2end(
+                        config.num_levels,
+                        config.top_k_patches,
+                        model,
+                        config.base_power,
+                        batch,
+                        config.task,
+                        random_rec_baseline=config.model_config.random_rec_baseline,
+                        magnification_factor=config.magnification_factor,
+                    )
 
                     val_eval.register(batch, hazards_or_logits, loss)
 
@@ -121,10 +162,16 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
     test_eval = mk_eval("test")
     with torch.no_grad():
         for batch in test_loader:
-            hazards_or_logits, loss = utils.inference_end2end(config.num_levels, config.top_k_patches, model,
-                                                              config.base_power, batch, config.task,
-                                                              random_rec_baseline=config.model_config.random_rec_baseline,
-                                                              magnification_factor=config.magnification_factor)
+            hazards_or_logits, loss = utils.inference_end2end(
+                config.num_levels,
+                config.top_k_patches,
+                model,
+                config.base_power,
+                batch,
+                config.task,
+                random_rec_baseline=config.model_config.random_rec_baseline,
+                magnification_factor=config.magnification_factor,
+            )
 
             test_eval.register(batch, hazards_or_logits, loss)
 
@@ -133,8 +180,12 @@ def train_loop(model: RecursiveModel, train_ds: SlideDataset, val_ds: SlideDatas
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--model-dir", required=True, help="Path to model directory. Must contain "
-                                                                 "config.json file.")
+    parser.add_argument(
+        "-m",
+        "--model-dir",
+        required=True,
+        help="Path to model directory. Must contain " "config.json file.",
+    )
     parser.add_argument("--wandb-project-name", type=str, default="PATHS")
     args = parser.parse_args()
 
@@ -154,7 +205,7 @@ if __name__ == "__main__":
         name=args.model_dir.replace("/", "_"),
         config=asdict(config),
         resume="allow",
-        id=run_id
+        id=run_id,
     )
 
     wandb.define_metric("epoch")
@@ -163,7 +214,10 @@ if __name__ == "__main__":
         wandb.define_metric(f"{split}_accuracy", step_metric="epoch")
         wandb.define_metric(f"{split}_c-index", step_metric="epoch")
 
-    train, val, test = config.get_dataset([0.7, 0.15, 0.15], config.seed, model.procs[0].ctx_dim())
+    train, val, test = config.get_dataset(
+        [0.7, 0.15, 0.15], config.seed, model.procs[0].ctx_dim()
+    )
+
     if config.early_stopping:
         assert val is not None, f"Must have validation set to use early stopping"
 

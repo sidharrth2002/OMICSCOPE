@@ -3,16 +3,29 @@ import torch
 import pytorch_lightning as pl
 import socket
 import os
+import logging
+import contextlib
+
+
+@contextlib.contextmanager
+def suppress_logging():
+    # Disable all logging messages of level CRITICAL and below.
+    logging.disable(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        # Re-enable logging.
+        logging.disable(logging.NOTSET)
+
 
 if "mac" in socket.gethostname():
     sys.path.append(
         "/Users/sidharrthnagappan/Documents/University/Cambridge/Courses/Dissertation/dissertation/src"
     )
 else:
-    sys.path.append(
-        "/home/sn666/dissertation/src"
-    )
+    sys.path.append("/home/sn666/dissertation/src")
 
+TRANSCRIPTOMICS_MODEL_PATH = "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_128_b_subsetgene_then_norm_relu/epoch=9-step=3950.ckpt"
 
 from models.hist_to_transcriptomics import HistopathologyToTranscriptomics
 
@@ -44,30 +57,42 @@ def load_model(checkpoint_path: str):
     return model
 
 
-histtost = load_model("/home/sn666/epoch=14-step=7950.ckpt")
+histtost = load_model(TRANSCRIPTOMICS_MODEL_PATH)
 
 
 def get_transcriptomics_data(patch_features: torch.Tensor):
     """
     For each patch, return the transcriptomics data by calling a saved HistopathologyToTranscriptomics model.
     """
-    # there can be a variable number of patches passed to this function
-    num_patches = patch_features.shape[0]
-    print(f"num_patches: {num_patches}")
-    dataset = MiniPatchDataset(patch_features)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=num_patches)
-    if torch.cuda.is_available():
-        trainer = pl.Trainer(devices=1)
-    else:
-        trainer = pl.Trainer(accelerator="cpu")
+    # getting too noisy
+    with suppress_logging():
+        # there can be a variable number of patches passed to this function
+        num_patches = patch_features.shape[0]
+        # print(f"num_patches: {num_patches}")
 
-    predictions = trainer.predict(histtost, dataloaders=dataloader)
+        trainer_args = {
+            "logger": False,
+            "enable_progress_bar": False,
+            "enable_model_summary": False,
+        }
+        dataset = MiniPatchDataset(patch_features)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=num_patches)
+        if torch.cuda.is_available():
+            trainer = pl.Trainer(devices=1, **trainer_args)
+        else:
+            trainer = pl.Trainer(accelerator="cpu", **trainer_args)
 
-    return predictions
+        # print("Predicting transcriptomics data...")
+        predictions = trainer.predict(histtost, dataloaders=dataloader)
+        # print("Predictions done.")
+
+        return predictions
+
 
 def get_num_transcriptomics_features():
     # TODO: make this dynamic idk
-    return 50
+    return 250
+
 
 def load(path):
     # root_dir = '/home/sn666/rds/rds-cl-acs-qRKC0ovsKR0/sn666/healnet/data/tcga/tcga/wsi/luad_zzb20_uni'
@@ -76,11 +101,13 @@ def load(path):
     # assert os.path.isfile(path), f"Pre-process load: path '{path}' not found!"
     return torch.load(path)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # load the patch features
-    patch_features = load("/home/sn666/rds/rds-cl-acs-qRKC0ovsKR0/sn666/healnet/data/tcga/tcga/wsi/luad_zzb20_uni/TCGA-4B-A93V-01Z-00-DX1.C263DC1C-298D-47ED-AAF8-128043828530_5.000.pt")
+    patch_features = load(
+        "/home/sn666/rds/rds-cl-acs-qRKC0ovsKR0/sn666/healnet/data/tcga/tcga/wsi/luad_zzb20_uni/TCGA-4B-A93V-01Z-00-DX1.C263DC1C-298D-47ED-AAF8-128043828530_5.000.pt"
+    )
     print(patch_features[0][0])
     transcriptomics_data = get_transcriptomics_data(patch_features[0][0])
     print(transcriptomics_data)
     # get the transcriptomics data
-    

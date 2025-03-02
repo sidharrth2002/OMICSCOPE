@@ -137,6 +137,10 @@ def load_splits(props, seed, ctx_dim, config, test_only=False, combined=False):
                 val_size = int(len(train_p) * config.hipt_val_proportion)
                 val_p, train_p = train_p[:val_size], train_p[val_size:]
 
+        # TODO: remove the subsetting, it's only to test script
+        # train = frame[frame[match_on].isin(train_p)][:2]
+        # val = frame[frame[match_on].isin(val_p)][:2] if val_p is not None else None
+        # test = frame[frame[match_on].isin(test_p)][:2]
         train = frame[frame[match_on].isin(train_p)]
         val = frame[frame[match_on].isin(val_p)] if val_p is not None else None
         test = frame[frame[match_on].isin(test_p)]
@@ -230,6 +234,10 @@ class SlideDataset(dutils.Dataset):
         #     data = list(tqdm(pool.imap(self.load_top_level, inps), total=ds_len, desc="Pre-patching dataset"))
         # self.slides = data
         # torch.multiprocessing.set_sharing_strategy('file_descriptor')
+        
+        print(f"self.slides[0]: {self.slides[0]}")
+        # print(f"self.slides[0] keys: {self.slides[0].keys()}")
+        print(f"self.slides[0] fts[0] shape: {self.slides[0].fts[0].shape}")
 
     def load_top_level(self, idx):
         kwargs = {}

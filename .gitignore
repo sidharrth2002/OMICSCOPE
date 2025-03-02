@@ -1,3 +1,5 @@
+run_all.sh
+
 out/
 .idea/
 
@@ -7,6 +9,8 @@ models/**/*.pt
 models/**/*.pkl
 models_old/**/*.pkl
 models_old/**/*.pt
+models_with_transcriptomics/**/*.pt
+models_with_transcriptomics/**/*.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
