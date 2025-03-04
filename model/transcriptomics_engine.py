@@ -6,6 +6,15 @@ import os
 import logging
 import contextlib
 
+if "mac" in socket.gethostname():
+    sys.path.append(
+        "/Users/sidharrthnagappan/Documents/University/Cambridge/Courses/Dissertation/dissertation/src"
+    )
+else:
+    sys.path.append("/home/sn666/dissertation/src")
+
+from models.hist_to_transcriptomics import HistopathologyToTranscriptomics
+
 
 @contextlib.contextmanager
 def suppress_logging():
@@ -18,16 +27,9 @@ def suppress_logging():
         logging.disable(logging.NOTSET)
 
 
-if "mac" in socket.gethostname():
-    sys.path.append(
-        "/Users/sidharrthnagappan/Documents/University/Cambridge/Courses/Dissertation/dissertation/src"
-    )
-else:
-    sys.path.append("/home/sn666/dissertation/src")
+# TRANSCRIPTOMICS_MODEL_PATH = "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_128_b_subsetgene_then_norm_relu/epoch=9-step=3950.ckpt"
 
-TRANSCRIPTOMICS_MODEL_PATH = "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_128_b_subsetgene_then_norm_relu/epoch=9-step=3950.ckpt"
-
-from models.hist_to_transcriptomics import HistopathologyToTranscriptomics
+TRANSCRIPTOMICS_MODEL_PATH = "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_porpoise_genes_2layer/epoch=7-step=3160.ckpt"
 
 
 class MiniPatchDataset(torch.utils.data.Dataset):
@@ -91,7 +93,7 @@ def get_transcriptomics_data(patch_features: torch.Tensor):
 
 def get_num_transcriptomics_features():
     # TODO: make this dynamic idk
-    return 250
+    return histtost.num_outputs
 
 
 def load(path):

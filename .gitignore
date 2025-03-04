@@ -1,4 +1,4 @@
-run_all.sample.sh
+run_paths.sh
 
 out/
 .idea/

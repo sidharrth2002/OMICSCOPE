@@ -1,3 +1,4 @@
+from datetime import datetime
 import numpy as np
 import torch
 import torch.utils.data as dutils
@@ -15,6 +16,9 @@ from data_utils.dataset import SlideDataset, collate_fn
 from model.interface import RecursiveModel
 from eval import SurvivalEvaluator, SubtypeClassificationEvaluator
 
+os.environ['WANDB_INIT_TIMEOUT'] = '600'
+os.environ['WANDB_DEBUG'] = 'true'
+os.environ['WANDB_CORE_DEBUG'] = 'true'
 
 def get_dataloaders(train, val, test, batch_size):
     num_workers = 0
@@ -94,6 +98,7 @@ def train_loop(
         for batch in tqdm(train_loader):
             opt.zero_grad()
 
+            print("Starting batch training")
             hazards_or_logits, loss = utils.inference_end2end(
                 config.num_levels,
                 config.top_k_patches,
@@ -105,6 +110,7 @@ def train_loop(
                 config.model_config.random_rec_baseline,
                 config.magnification_factor,
             )
+            print("Finished batch training")
 
             if config.use_mixed_precision:
                 scaler.scale(loss).backward()
@@ -129,6 +135,7 @@ def train_loop(
             model.eval()
             with torch.no_grad():
                 for batch in val_loader:
+                    print("Starting batch validation")
                     hazards_or_logits, loss = utils.inference_end2end(
                         config.num_levels,
                         config.top_k_patches,
@@ -139,6 +146,7 @@ def train_loop(
                         random_rec_baseline=config.model_config.random_rec_baseline,
                         magnification_factor=config.magnification_factor,
                     )
+                    print("Finished batch validation")
 
                     val_eval.register(batch, hazards_or_logits, loss)
 
@@ -202,7 +210,8 @@ if __name__ == "__main__":
     wandb.init(
         project=args.wandb_project_name,
         # name=f"{name}",
-        name=args.model_dir.replace("/", "_"),
+        name=f"{args.model_dir.replace('/', '_')}_{datetime.now().strftime('%m%d')}",
+        # name=args.model_dir.replace('/', '_'),
         config=asdict(config),
         resume="allow",
         id=run_id,

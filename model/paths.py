@@ -234,6 +234,7 @@ class PATHSProcessor(nn.Module, Processor):
         # append transcriptomics features to patch context
         if self.config.add_transcriptomics and (transcriptomics is not None):
             # print("appending transcriptomics to patch_ctx")
+            # print(f"transcriptomics: {transcriptomics}")
             # print('patch_ctx shape is ', patch_ctx.shape)
             # print('transcriptomics shape is ', transcriptomics.shape)
             # concatted = torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
