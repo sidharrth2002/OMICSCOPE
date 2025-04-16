@@ -1,0 +1,39 @@
+{
+    "wsi_dir": "/auto/archive/tcga/tcga/wsi/luad",
+    "preprocess_dir": "/auto/archive/tcga/tcga/wsi/luad_zzb20_uni",
+    "csv_path": "/auto/archive/tcga/tcga/omic/tcga_luad_all_clean.csv.zip",
+    "batch_size": 32,
+    
+    "eval_epochs": 1,
+    "lr": 2e-05,
+    "lr_decay_per_epoch": 0.99,
+    "seed": 3,
+    "base_power": 0.625,
+    "magnification_factor": 2,
+    "num_levels": 5,
+    "num_epochs": [
+        40
+    ],
+    
+    "top_k_patches": 20,
+    "early_stopping": true,
+    "hipt_splits": true,
+    "hipt_val_proportion": 0.1,
+    "model_type": "PATHS",
+    "model_config": {
+        "hierarchical_ctx": true,
+        "slide_ctx_mode": "residual",
+        "patch_embed_dim": 1024,
+        "dropout": 0.05,
+        "importance_mode": "mul",
+        "trans_dim": 128,
+        "trans_heads": 4,
+        "trans_layers": 2,
+        "pos_encoding_mode": "2d",
+        "importance_mlp_hidden_dim": 128,
+        "hierarchical_ctx_mlp_hidden_dim": 256,
+        "lstm": true,
+        "add_transcriptomics": true
+    },
+    "root_name": "luad_paths"
+}

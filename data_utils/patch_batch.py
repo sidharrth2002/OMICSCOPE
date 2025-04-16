@@ -128,6 +128,10 @@ def from_raw_slide(slide: RawSlide, im_enc, transform, device=None) -> PatchBatc
     with torch.no_grad():
         fts = im_enc(transform(slide.patches.to(device)))
 
+    print(f"fts shape: {fts.shape}")
+    transcriptomics = get_transcriptomics_data(fts)
+    print(f"transcriptomics shape after predict: {transcriptomics[0].shape}")
+
     num_ims = torch.LongTensor([slide.locs.size(0)]).to(device)
     return PatchBatch(
         p(slide.locs),
@@ -136,6 +140,7 @@ def from_raw_slide(slide: RawSlide, im_enc, transform, device=None) -> PatchBatc
         p(slide.ctx_slide),
         p(slide.ctx_patch),
         p(fts),
+        transcriptomics=p(transcriptomics),
     )
 
 
