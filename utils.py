@@ -125,8 +125,8 @@ def apply_to_non_padded(network: Callable, xs: torch.Tensor, transcriptomics: to
     """
     batch_size, max_seq = xs.shape[:2]
     out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device)
-    print(f"transcriptomics[0] shape: {transcriptomics[0].shape}")
-    print(f"inds: {inds}")
+    # print(f"transcriptomics[0] shape: {transcriptomics[0].shape}")
+    # print(f"inds: {inds}")
     # transcriptomics = transcriptomics[0].to(device=xs.device)
     out[inds] = network({
         "contextualised_features": xs[inds], 
@@ -281,7 +281,7 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
                 ind = i if magnification_factor == 2 else 2 * i
 
                 x = slide.iter(ind, data.num_ims[j], locs_cpu[j], data.ctx_slide[j], data.ctx_patch[j], importance[j],
-                               new_ctx_slide[j], new_ctx_patch[j], keep_patches[i], imp_cpu[j], return_leaf=True, leaf_frac=0.1)
+                               new_ctx_slide[j], new_ctx_patch[j], keep_patches[i], imp_cpu[j], return_leaf=True, leaf_frac=0.8)
 
                 if magnification_factor == 4:
                     new_fts = x["fts"]
@@ -297,6 +297,7 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
                 for k, v in x.items():
                     print(f"{k}: {v.shape}")
                 print(f"x parent_inds: {x['parent_inds'].shape}")
+                
                 new_batch.append(x)
 
             batch = collate_fn(new_batch)

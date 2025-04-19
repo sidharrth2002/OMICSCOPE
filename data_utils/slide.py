@@ -307,11 +307,10 @@ class PreprocessedSlide:
             
             # --- safe indexing: rewrite o‑o‑b rows to (0,0) first
             next_locs_safe = next_locs.clone()
-            next_locs_safe[~inb] = 0 
-            bg = fts_m1[next_locs_safe[:, 0],
-+                    next_locs_safe[:, 1]].sum(dim=1) != 0 # (0,0) is always within bounds
+            next_locs_safe[~inb] = 0
+            bg = fts_m1[next_locs_safe[:, 0], next_locs_safe[:, 1]].sum(dim=1) != 0 # (0,0) is always within bounds
             # bg = fts_m1[next_locs[:, 0], next_locs[:, 1]].sum(dim=1) != 0
-            print("bg", bg)
+            # print("bg", bg)
             keep = torch.logical_and(inb, bg)
             
             current_locs = next_locs[keep]
@@ -320,6 +319,7 @@ class PreprocessedSlide:
             
             # edge case - all filtered out -> fall back to "all tiles"
             if current_locs.numel() == 0:
+                print("reached edge case")
                 H, W, _ = fts_m1.shape
                 current_locs = torch.stack(torch.meshgrid(
                     torch.arange(H, device=fts_m1.device),
@@ -328,7 +328,8 @@ class PreprocessedSlide:
                 current_parents = current_parents.new_tensor(
                     torch.arange(current_locs.size(0))
                 )
-            
+                os._exit(0)
+                            
         # gather features on leaf level
         leaf_fts = self.fts[-1][current_locs[:, 0], current_locs[:, 1]]
         return current_locs, current_parents, leaf_fts
@@ -434,15 +435,39 @@ class PreprocessedSlide:
         
         if return_leaf:
             # 1) fetch all leaves down to highest level
+            # leaf_locs, leaf_parent_inds, leaf_fts = self._get_leaf_children(
+            #     new_locs, magnification_index + 1, parent_inds
+            # )
+            mapping = torch.arange(new_locs.size(0), dtype=torch.long, device=new_locs.device)
             leaf_locs, leaf_parent_inds, leaf_fts = self._get_leaf_children(
-                new_locs, magnification_index + 1, parent_inds
+                new_locs, magnification_index + 1, mapping
             )
 
+            print("leaf parent inds", leaf_parent_inds)
+
             # 2) compute parent counts & max
-            # num_parents  = int(leaf_parent_inds.max().item()) + 1
-            num_parents = new_fts.size(0)
+            # num_parents  = int(leaf_parent_inds.max().item()) + 1            
+            # num_parents = new_fts.size(0)
+
+            P = new_fts.size(0)
+            # valid = leaf_parent_inds < P
+
+            # if (leaf_parent_inds >= P).any():
+            #     print(f"P: {P}, leaf_parent_inds: {leaf_parent_inds}")
+            #     raise RuntimeError("got impossible parent index; please debug fallback logic")
+
+            # leaf_locs = leaf_locs[valid]
+            # leaf_fts = leaf_fts[valid]
+            # leaf_parent_inds = leaf_parent_inds[valid]
+            num_parents = P
+
             leaf_counts  = torch.bincount(leaf_parent_inds, minlength=num_parents)
             max_children = int(leaf_counts.max().item())
+
+            # to keep record of which parent patches actually have leaves
+            # full_counts = torch.bincount(leaf_parent_inds, minlength=new_fts.size(0))
+            # has_leaves = full_counts > 0
+            # print("has leaves", has_leaves)
 
             # 3) allocate full leaf tensors
             D_feat = leaf_fts.size(1)
@@ -460,9 +485,9 @@ class PreprocessedSlide:
                 p = leaf_parent_inds[idx].item()
                 w = write_ptr[p].item()
                 leaf_locs_grouped[p, w] = leaf_locs[idx] * self.patch_size
-                leaf_fts_grouped [p, w] = leaf_fts[idx]
-                leaf_mask[p, w]        = True
-                write_ptr[p]           += 1
+                leaf_fts_grouped[p, w] = leaf_fts[idx]
+                leaf_mask[p, w] = True
+                write_ptr[p] += 1
 
             # 5) per‑parent fraction‑based pruning
             keep_counts = (leaf_counts.float() * leaf_frac).ceil().long().clamp(min=1)
@@ -477,6 +502,7 @@ class PreprocessedSlide:
 
             for p in range(num_parents):
                 K = keep_counts[p].item()
+                # print(f"Only keeping {K} of {leaf_counts[p].item()} for parent {p}")
                 real_idxs = torch.nonzero(leaf_mask[p], as_tuple=True)[0]
                 if real_idxs.numel() > K:
                     sel = real_idxs[torch.randperm(real_idxs.numel(), device=device)[:K]]
@@ -491,11 +517,6 @@ class PreprocessedSlide:
             leaf_fts_grouped  = pruned_fts
             leaf_mask         = pruned_mask
             leaf_counts       = keep_counts
-
-            print("leaf_counts", leaf_counts)
-            print("leaf_locs_grouped", leaf_locs_grouped)
-            print("leaf_fts_grouped", leaf_fts_grouped)
-            print("leaf_mask", leaf_mask)
 
             # 7) add to return dict
             ret.update({
