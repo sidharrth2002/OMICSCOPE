@@ -430,7 +430,8 @@ class PreprocessedSlide:
             "ctx_patch": ctx_patch,
             "ctx_slide": ctx_slide,
             "locs": new_locs * self.patch_size,
-            "parent_inds": parent_inds
+            "parent_inds": parent_inds,
+            "slide_id": self.slide_id,
         }
         
         if return_leaf:
@@ -443,7 +444,7 @@ class PreprocessedSlide:
                 new_locs, magnification_index + 1, mapping
             )
 
-            print("leaf parent inds", leaf_parent_inds)
+            # print("leaf parent inds", leaf_parent_inds)
 
             # 2) compute parent counts & max
             # num_parents  = int(leaf_parent_inds.max().item()) + 1            
@@ -549,7 +550,8 @@ class PreprocessedSlide:
             "ctx_patch": ctx_patch,
 
             # Fixed length
-            "ctx_slide": self.ctx_slide
+            "ctx_slide": self.ctx_slide,
+            "slide_id": self.slide_id
         } | kwargs
 
 

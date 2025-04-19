@@ -33,7 +33,8 @@
         "importance_mlp_hidden_dim": 128,
         "hierarchical_ctx_mlp_hidden_dim": 256,
         "lstm": true,
-        "add_transcriptomics": true
+        "add_transcriptomics": true,
+        "transcriptomics_type": "multi-magnification"
     },
     "root_name": "kirc_paths"
 }

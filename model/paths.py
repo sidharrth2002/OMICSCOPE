@@ -211,7 +211,7 @@ class PATHSProcessor(nn.Module, Processor):
                 self.importance_mlp(xs["contextualised_features"])
             ),
             patch_features,
-            transcriptomics,
+            # transcriptomics,
             data.valid_inds,
             1,
         )[..., 0]
@@ -250,12 +250,13 @@ class PATHSProcessor(nn.Module, Processor):
             # )
 
             # TODO: Important! Put this back
-            # print(f"len transcriptomics: {len(transcriptomics)}")
-            # print(f"transcriptomics[0].shape is {transcriptomics[0].shape}")
+            print(f"len transcriptomics: {len(transcriptomics)}")
+            print(f"transcriptomics.shape is {transcriptomics.shape}")
+            print(f"patch_ctx.shape is {patch_ctx.shape}")
 
             # if transcriptomics is of type list, get the first element
-            if isinstance(transcriptomics, list):
-                transcriptomics = transcriptomics[0]
+            # if isinstance(transcriptomics, list):
+            #     transcriptomics = transcriptomics[0]
 
             patch_ctx = self.combine_transcriptomics_patch_ctx(
                 torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)

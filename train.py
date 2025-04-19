@@ -109,6 +109,7 @@ def train_loop(
                 config.use_mixed_precision,
                 config.model_config.random_rec_baseline,
                 config.magnification_factor,
+                transcriptomics_type=config.model_config.transcriptomics_type
             )
             print("Finished batch training")
 
@@ -145,6 +146,7 @@ def train_loop(
                         config.task,
                         random_rec_baseline=config.model_config.random_rec_baseline,
                         magnification_factor=config.magnification_factor,
+                        transcriptomics_type=config.model_config.transcriptomics_type
                     )
                     print("Finished batch validation")
 
@@ -179,6 +181,7 @@ def train_loop(
                 config.task,
                 random_rec_baseline=config.model_config.random_rec_baseline,
                 magnification_factor=config.magnification_factor,
+                transcriptomics_type=config.model_config.transcriptomics_type
             )
 
             test_eval.register(batch, hazards_or_logits, loss)
@@ -198,6 +201,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = cfg.Config.load(args.model_dir)
+    print(config)
 
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
