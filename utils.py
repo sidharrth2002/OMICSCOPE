@@ -125,10 +125,6 @@ def apply_to_non_padded(network: Callable, xs: torch.Tensor, inds: torch.BoolTen
     """
     batch_size, max_seq = xs.shape[:2]
     out = torch.zeros((batch_size, max_seq, output_dim), device=xs.device)
-    print(f"xs shape: {xs.shape}")
-    # print(f"transcriptomics[0] shape: {transcriptomics[0].shape}")
-    # print(f"inds: {inds}")
-    # transcriptomics = transcriptomics[0].to(device=xs.device)
     out[inds] = network({
         "contextualised_features": xs[inds], 
     })
