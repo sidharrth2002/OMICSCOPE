@@ -15,6 +15,7 @@ else:
     sys.path.append("/home/sn666/dissertation/src")
 
 from models.hist_to_transcriptomics import HistopathologyToTranscriptomics
+from models.diffusion import MultiMagnificationDiffusionModel
 
 @contextlib.contextmanager
 def suppress_logging():
@@ -29,7 +30,7 @@ def suppress_logging():
 
 # TRANSCRIPTOMICS_MODEL_PATH = "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_128_b_subsetgene_then_norm_relu/epoch=9-step=3950.ckpt"
 
-TRANSCRIPTOMICS_MODEL_PATH = "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_porpoise_genes_2layer/epoch=9-step=3950.ckpt"
+# TRANSCRIPTOMICS_MODEL_PATH = "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_porpoise_genes_2layer/epoch=9-step=3950.ckpt"
 
 
 class MiniPatchDataset(torch.utils.data.Dataset):
@@ -55,11 +56,16 @@ def load_model(checkpoint_path: str):
     """
     Load the HistopathologyToTranscriptomics model from a checkpoint.
     """
-    model = HistopathologyToTranscriptomics.load_from_checkpoint(checkpoint_path)
+    if "hist_to_transcriptomics" in checkpoint_path:
+        model = HistopathologyToTranscriptomics.load_from_checkpoint(checkpoint_path)
+    elif "diffusion" in checkpoint_path:
+        model = MultiMagnificationDiffusionModel.load_from_checkpoint(checkpoint_path)
+    else:
+        raise ValueError(f"Unknown model type in checkpoint path: {checkpoint_path}")
     return model
 
 
-histtost = load_model(TRANSCRIPTOMICS_MODEL_PATH)
+transcriptomics_model = None
 
 """
 This global variable is used to store the transcriptomics observations of previously 
@@ -88,10 +94,17 @@ def tensor_fingerprint(
     buf = t.detach().to(dtype=torch.float32, device="cpu", copy=False).contiguous().numpy().tobytes()
     return hashlib.blake2b(buf, digest_size=8).hexdigest()  # 8 bytes → 16‑char hex
 
-def get_transcriptomics_data(patch_features: torch.Tensor) -> torch.Tensor:
+def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model_path: str) -> torch.Tensor:
+    global transcriptomics_model
+    
+    if transcriptomics_model is None:
+        # Load the model
+        print("Loading transcriptomics model...")
+        transcriptomics_model = load_model(transcriptomics_model_path)
+    
     B, P, _ = patch_features.shape
     device  = patch_features.device
-    out_dim = histtost.num_outputs
+    out_dim = transcriptomics_model.num_outputs
     result  = torch.empty((B, P, out_dim), device=device)
 
     # -----------------------------------------------------------------------
@@ -123,7 +136,7 @@ def get_transcriptomics_data(patch_features: torch.Tensor) -> torch.Tensor:
         )
 
         with suppress_logging():
-            preds = torch.cat(trainer.predict(histtost, dataloaders=loader), dim=0)  # (n_missing, P, out_dim)
+            preds = torch.cat(trainer.predict(transcriptomics_model, dataloaders=loader), dim=0)  # (n_missing, P, out_dim)
 
         # write to output and cache
         result[missing_idx] = preds
@@ -132,9 +145,16 @@ def get_transcriptomics_data(patch_features: torch.Tensor) -> torch.Tensor:
 
     return result
 
-def get_num_transcriptomics_features():
+def get_num_transcriptomics_features(transcriptomics_model_path: str) -> int:
+    global transcriptomics_model
+    
+    if transcriptomics_model is None:
+        # Load the model
+        print("Loading transcriptomics model...")
+        transcriptomics_model = load_model(transcriptomics_model_path)
+        
     # TODO: make this dynamic idk
-    return histtost.num_outputs
+    return transcriptomics_model.num_outputs
 
 
 def load(path):

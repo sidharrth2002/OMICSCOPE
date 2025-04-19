@@ -92,11 +92,11 @@ class PatchBatch:
         self.valid_inds = inds
 
 
-def from_batch(batch: Dict, device, transcriptomics_type: str) -> PatchBatch:
+def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_model_path: str) -> PatchBatch:
     if transcriptomics_type == 'multi-magnification':
         # store unique identifiers for each patch, made up of slide id and patch locs
         # get transcriptomics based on the patch features
-        transcriptomics = get_transcriptomics_data(batch['fts'])
+        transcriptomics = get_transcriptomics_data(batch['fts'], transcriptomics_model_path)
         batch['transcriptomics'] = transcriptomics
 
     # TODO: elif transcriptomics_type == 'highest-magnification':

@@ -261,7 +261,7 @@ def inference(model, depth, power, batch, importance_penalty, task: str):
 
 # todo; should probably just move somewhere else to prevent circular imports
 def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: str, use_mixed_precision: bool = False,
-                      random_rec_baseline: bool = False, magnification_factor: int = 2, transcriptomics_type: str = "none"):
+                      random_rec_baseline: bool = False, magnification_factor: int = 2, transcriptomics_type: str = "none", transcriptomics_model_path: str = None):
     from data_utils import patch_batch  # circular imports...
     from data_utils.slide import PreprocessedSlide
     from data_utils.dataset import collate_fn
@@ -275,7 +275,7 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
         locs_cpu = batch["locs"]
 
         with autocast(enabled=use_mixed_precision):
-            data = patch_batch.from_batch(batch, device, transcriptomics_type=transcriptomics_type)
+            data = patch_batch.from_batch(batch, device, transcriptomics_type=transcriptomics_type, transcriptomics_model_path=transcriptomics_model_path)
             out = model(i, data)
 
             importance = out["importance"]
@@ -296,7 +296,10 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
                 ind = i if magnification_factor == 2 else 2 * i
 
                 x = slide.iter(ind, data.num_ims[j], locs_cpu[j], data.ctx_slide[j], data.ctx_patch[j], importance[j],
-                               new_ctx_slide[j], new_ctx_patch[j], keep_patches[i], imp_cpu[j], return_leaf=True, leaf_frac=0.8)
+                               new_ctx_slide[j], new_ctx_patch[j], keep_patches[i], imp_cpu[j], 
+                               # only compute leaves if the transcriptomics type is highest-magnification
+                               # if not, we do inference at every magnification
+                               return_leaf=(transcriptomics_type == "highest-magnification"), leaf_frac=0.8)
 
                 if magnification_factor == 4:
                     new_fts = x["fts"]
