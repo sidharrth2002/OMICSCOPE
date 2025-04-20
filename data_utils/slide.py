@@ -516,7 +516,7 @@ class PreprocessedSlide:
         
         if return_leaf:
             # parse and aggregate leaves
-            leaf_data = self.parse_and_aggregate_leaves(new_locs, new_fts, magnification_index)
+            leaf_data = self.parse_and_aggregate_leaves(new_locs.clone(), new_fts.clone(), magnification_index)
             
             ret = ret | leaf_data
 
@@ -535,7 +535,7 @@ class PreprocessedSlide:
         parent_inds = self.parent_inds
         ctx_patch = self.ctx_patch
 
-        leaf_data = self.parse_and_aggregate_leaves(locs, fts, 0)
+        leaf_data = self.parse_and_aggregate_leaves(locs.clone(), fts.clone(), 0)
 
         return {
             # Variable length

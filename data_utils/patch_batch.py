@@ -93,103 +93,105 @@ class PatchBatch:
 
 
 def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_model_path: str) -> PatchBatch:
-    transcriptomics_dim = get_num_transcriptomics_features(transcriptomics_model_path)
-    
-    if transcriptomics_type == 'multi-magnification':
-        # store unique identifiers for each patch, made up of slide id and patch locs
-        # get transcriptomics based on the patch features
-        transcriptomics = get_transcriptomics_data(batch['fts'], transcriptomics_model_path)
-        batch['transcriptomics'] = transcriptomics
-    
-    # TODO: Complete this!
-    elif transcriptomics_type == 'highest-magnification':
-        # we only want to do transcriptomics on the leaves, i.e. the highest magnification patches
-        # shape is [batch size x max images x num patches x embedding dim]
-        # since it's padded, I only want to do transcriptomics on the non-zero patches and average them
-
-        leaf_fts   = batch["leaf_fts_grouped"]                 # (B, P_max, C_max, D)
-        B, P_max, C_max, D = leaf_fts.shape
-
-        # ------------------------------------------------------------------ #
-        # 1)  flatten once → pick only the valid children                    #
-        # ------------------------------------------------------------------ #
-        mask           = leaf_fts.abs().sum(dim=-1) != 0       # (B, P, C)  True → real child
-        valid_feats    = leaf_fts[mask]                        # (N_total, D)
-
-        if valid_feats.numel() != 0:                           # rare edge‑case
-            # indices to map every child back to (slide, patch)
-            slide_idx = (
-                torch.arange(B)[:, None, None]
-                .expand(B, P_max, C_max)[mask]                     # (N_total,)
-            )
-            patch_idx = (
-                torch.arange(P_max)[None, :, None]
-                .expand(B, P_max, C_max)[mask]                     # (N_total,)
-            )
-
-            # ------------------------------------------------------------------ #
-            # 2)  ***single*** transcriptomics inference for the whole batch     #
-            # ------------------------------------------------------------------ #
-            preds_child = get_transcriptomics_data(valid_feats, transcriptomics_model_path)
-            # shape: (N_total, T)
-
-            # ------------------------------------------------------------------ #
-            # 3)  scatter‑add → sum over children, then divide by count          #
-            # ------------------------------------------------------------------ #
-            agg   = torch.zeros(B, P_max, transcriptomics_dim)       # sum of children
-            count = torch.zeros(B, P_max, 1)        # #children per patch
-
-            idx_flat = slide_idx * P_max + patch_idx               # linear index over (B, P_max)
-            agg.view(-1, transcriptomics_dim).scatter_add_(0,
-                idx_flat.unsqueeze(1).expand(-1, transcriptomics_dim), preds_child)
-
-            count.view(-1, 1).scatter_add_(0,
-                idx_flat.unsqueeze(1), torch.ones_like(idx_flat, dtype=torch.float32).unsqueeze(1))
-
-            # average (safe – patches with 0 children stay 0)
-            batch["transcriptomics"] = (agg / count.clamp(min=1.0))  # (B, P_max, T)
-        else:
-            # no children -> zero transcriptomics vector
-            batch["transcriptomics"] = torch.zeros(B, P_max, transcriptomics_dim)
-
-
-        # print(f"Elements in batch: {batch.keys()}")
-        # print(f"Batch fts length: {len(batch['fts'])}")
-        # print(f"Batch fts[0] shape: {batch['fts'][0].shape}")
-        # if "leaf_fts_grouped" in batch:
-        #     print(f"Batch leaf_fts_grouped length: {len(batch['leaf_fts_grouped'])}")
-        #     print(f"Batch leaf_fts_grouped[0] shape: {batch['leaf_fts_grouped'][0].shape}")
-        #     print(f"Batch leaf_fts_grouped[1] shape: {batch['leaf_fts_grouped'][1].shape}")
+    print(f"transcriptomics_type: {transcriptomics_type}")
+    if transcriptomics_type != 'none':
+        transcriptomics_dim = get_num_transcriptomics_features(transcriptomics_model_path)
         
-        # # leaf fts grouped: list of B tensors, each of shape [patches, children, embedding dim]
-        # tx_list = []
-        # for leaf_feats in batch['leaf_fts_grouped']:
-        #     print(f"Leaf feats shape: {leaf_feats.shape}")
-        #     P, C, D = leaf_feats.shape[0], leaf_feats.shape[1], leaf_feats.shape[2]
-            
-        #     mask = leaf_feats.abs().sum(dim=-1) != 0
-            
-        #     tx_per_patch = []
-        #     for i in range(P):
-        #         valid_feats = leaf_feats[i][mask[i]]
-        #         if valid_feats.numel() == 0:
-        #             # no children -> zero transcriptomics vector
-        #             tx = torch.zeros(transcriptomics_dim, device=batch['fts'].device)
-        #         else:
-        #             # run model once on all Ni children
-        #             tx_children = get_transcriptomics_data(valid_feats, transcriptomics_model_path)
-
-        #             # average over children dimension
-        #             tx = tx_children.mean(dim=0)
-        #         tx_per_patch.append(tx)
-            
-        #     # stack to [P, T]
-        #     tx_per_patch = torch.stack(tx_per_patch, dim=0)
-        #     tx_list.append(tx_per_patch)
+        if transcriptomics_type == 'multi-magnification':
+            # store unique identifiers for each patch, made up of slide id and patch locs
+            # get transcriptomics based on the patch features
+            transcriptomics = get_transcriptomics_data(batch['fts'], transcriptomics_model_path)
+            batch['transcriptomics'] = transcriptomics
         
-        # batch['transcriptomics'] = torch.stack(tx_list, dim=0)
+        # TODO: Complete this!
+        elif transcriptomics_type == 'highest-magnification':
+            # we only want to do transcriptomics on the leaves, i.e. the highest magnification patches
+            # shape is [batch size x max images x num patches x embedding dim]
+            # since it's padded, I only want to do transcriptomics on the non-zero patches and average them
 
-    print("transcriptomics", batch['transcriptomics'].shape)
+            leaf_fts   = batch["leaf_fts_grouped"]                 # (B, P_max, C_max, D)
+            B, P_max, C_max, D = leaf_fts.shape
+
+            # ------------------------------------------------------------------ #
+            # 1)  flatten once → pick only the valid children                    #
+            # ------------------------------------------------------------------ #
+            mask           = leaf_fts.abs().sum(dim=-1) != 0       # (B, P, C)  True → real child
+            valid_feats    = leaf_fts[mask]                        # (N_total, D)
+
+            if valid_feats.numel() != 0:                           # rare edge‑case
+                # indices to map every child back to (slide, patch)
+                slide_idx = (
+                    torch.arange(B)[:, None, None]
+                    .expand(B, P_max, C_max)[mask]                     # (N_total,)
+                )
+                patch_idx = (
+                    torch.arange(P_max)[None, :, None]
+                    .expand(B, P_max, C_max)[mask]                     # (N_total,)
+                )
+
+                # ------------------------------------------------------------------ #
+                # 2)  ***single*** transcriptomics inference for the whole batch     #
+                # ------------------------------------------------------------------ #
+                preds_child = get_transcriptomics_data(valid_feats, transcriptomics_model_path)
+                # shape: (N_total, T)
+
+                # ------------------------------------------------------------------ #
+                # 3)  scatter‑add → sum over children, then divide by count          #
+                # ------------------------------------------------------------------ #
+                agg   = torch.zeros(B, P_max, transcriptomics_dim)       # sum of children
+                count = torch.zeros(B, P_max, 1)        # #children per patch
+
+                idx_flat = slide_idx * P_max + patch_idx               # linear index over (B, P_max)
+                agg.view(-1, transcriptomics_dim).scatter_add_(0,
+                    idx_flat.unsqueeze(1).expand(-1, transcriptomics_dim), preds_child)
+
+                count.view(-1, 1).scatter_add_(0,
+                    idx_flat.unsqueeze(1), torch.ones_like(idx_flat, dtype=torch.float32).unsqueeze(1))
+
+                # average (safe – patches with 0 children stay 0)
+                batch["transcriptomics"] = (agg / count.clamp(min=1.0))  # (B, P_max, T)
+            else:
+                # no children -> zero transcriptomics vector
+                batch["transcriptomics"] = torch.zeros(B, P_max, transcriptomics_dim)
+
+
+            # print(f"Elements in batch: {batch.keys()}")
+            # print(f"Batch fts length: {len(batch['fts'])}")
+            # print(f"Batch fts[0] shape: {batch['fts'][0].shape}")
+            # if "leaf_fts_grouped" in batch:
+            #     print(f"Batch leaf_fts_grouped length: {len(batch['leaf_fts_grouped'])}")
+            #     print(f"Batch leaf_fts_grouped[0] shape: {batch['leaf_fts_grouped'][0].shape}")
+            #     print(f"Batch leaf_fts_grouped[1] shape: {batch['leaf_fts_grouped'][1].shape}")
+            
+            # # leaf fts grouped: list of B tensors, each of shape [patches, children, embedding dim]
+            # tx_list = []
+            # for leaf_feats in batch['leaf_fts_grouped']:
+            #     print(f"Leaf feats shape: {leaf_feats.shape}")
+            #     P, C, D = leaf_feats.shape[0], leaf_feats.shape[1], leaf_feats.shape[2]
+                
+            #     mask = leaf_feats.abs().sum(dim=-1) != 0
+                
+            #     tx_per_patch = []
+            #     for i in range(P):
+            #         valid_feats = leaf_feats[i][mask[i]]
+            #         if valid_feats.numel() == 0:
+            #             # no children -> zero transcriptomics vector
+            #             tx = torch.zeros(transcriptomics_dim, device=batch['fts'].device)
+            #         else:
+            #             # run model once on all Ni children
+            #             tx_children = get_transcriptomics_data(valid_feats, transcriptomics_model_path)
+
+            #             # average over children dimension
+            #             tx = tx_children.mean(dim=0)
+            #         tx_per_patch.append(tx)
+                
+            #     # stack to [P, T]
+            #     tx_per_patch = torch.stack(tx_per_patch, dim=0)
+            #     tx_list.append(tx_per_patch)
+            
+            # batch['transcriptomics'] = torch.stack(tx_list, dim=0)
+
+        print("transcriptomics", batch['transcriptomics'].shape)
 
     batch = {i: utils.todevice(j, device) for i, j in batch.items()}
     return PatchBatch(**batch)

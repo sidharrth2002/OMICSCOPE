@@ -136,9 +136,10 @@ class PATHSProcessor(nn.Module, Processor):
         #     nn.ReLU(),
         #     nn.Linear(self.dim + self.hdim, self.dim + self.hdim)
         # )
-        self.combine_transcriptomics_patch_ctx = CombineTranscriptomicsPatchCtx(
-            self.dim, self.hdim, get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path), dropout_p=0.2
-        )
+        if config.add_transcriptomics:
+            self.combine_transcriptomics_patch_ctx = CombineTranscriptomicsPatchCtx(
+                self.dim, self.hdim, get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path), dropout_p=0.2
+            )
 
     def process(self, data: PatchBatch, lstm=None) -> Dict:
         """
