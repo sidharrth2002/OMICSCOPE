@@ -299,7 +299,7 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
                                new_ctx_slide[j], new_ctx_patch[j], keep_patches[i], imp_cpu[j], 
                                # only compute leaves if the transcriptomics type is highest-magnification
                                # if not, we do inference at every magnification
-                               return_leaf=(transcriptomics_type == "highest-magnification"), leaf_frac=0.8)
+                               return_leaf=(transcriptomics_type == "highest-magnification"))
 
                 if magnification_factor == 4:
                     new_fts = x["fts"]

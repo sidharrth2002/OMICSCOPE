@@ -193,6 +193,8 @@ class SlideDataset(dutils.Dataset):
         self.slide_ids = frame.slide_id
         self.root_dirs = frame.root_dir.tolist()
 
+        self.leaf_frac = config.model_config.transcriptomics_leaf_frac
+
         ds_len = len(self.slide_ids)
 
         self.ctx_dim = ctx_dim
@@ -250,7 +252,7 @@ class SlideDataset(dutils.Dataset):
             slide_id = slide_id[:-4]
 
         return load_patch_preprocessed_slide(slide_id, preprocessed_root, self.base_power, self.patch_size,
-                                             self.ctx_dim, self.num_levels, **kwargs)
+                                             self.ctx_dim, self.num_levels, leaf_frac=self.leaf_frac, **kwargs)
 
     def __len__(self):
         return len(self.slide_ids)

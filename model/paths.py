@@ -243,7 +243,7 @@ class PATHSProcessor(nn.Module, Processor):
             # if transcriptomics is of type list, get the first element
             # if isinstance(transcriptomics, list):
             #     transcriptomics = transcriptomics[0]
-
+            print("adding transcriptomics features to patch context")
             patch_ctx = self.combine_transcriptomics_patch_ctx(
                 torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
             )

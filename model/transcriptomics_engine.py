@@ -102,6 +102,13 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
         print("Loading transcriptomics model...")
         transcriptomics_model = load_model(transcriptomics_model_path)
     
+    print(f"Patch features shape: {patch_features.shape}")
+    
+    squeeze_back = False
+    if patch_features.dim() == 2:                    # (P, D)
+        patch_features = patch_features.unsqueeze(0) # (1, P, D)
+        squeeze_back = True
+    
     B, P, _ = patch_features.shape
     device  = patch_features.device
     out_dim = transcriptomics_model.num_outputs
@@ -115,6 +122,7 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
     for i in range(B):
         fp = tensor_fingerprint(patch_features[i], ndigits=4)  # or None for exact
         if fp in CACHE:                      # hit
+            print(f"Cache hit for {fp}")
             result[i] = CACHE[fp].to(device)
         else:                                # miss
             fingerprints.append(fp)
@@ -142,6 +150,9 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
         result[missing_idx] = preds
         for fp, pred in zip(fingerprints, preds):
             CACHE[fp] = pred.to(dtype=torch.float16, device="cpu")  # light‑weight cache
+
+    if squeeze_back:                                     # original input was 2‑D
+        result = result.squeeze(0)                     # -> (P, out_dim)
 
     return result
 
