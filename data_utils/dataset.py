@@ -269,7 +269,11 @@ class SlideDataset(dutils.Dataset):
         else:
             label_data = {}
 
-        return s.todict() | label_data | {"slide": s}
+        ret = s.todict() | label_data | {"slide": s}
+        
+        # print keys in ret
+        # print(f"Keys in ret: {ret.keys()}")
+        return ret
 
 
 def collate_fn(xs):
@@ -279,13 +283,20 @@ def collate_fn(xs):
     leaf_fields = {}
     leaf_keys = [k for k in xs[0].keys() if k.startswith("leaf_")]
     for k in leaf_keys:
-        leaf_fields[k] = [sample.pop(k) for sample in xs]
+        # we only want to keep leaf_fts_grouped
+        if k != "leaf_fts_grouped":
+            leaf_fields[k] = [sample.pop(k) for sample in xs]
 
     fts = [i.pop("fts") for i in xs]                  # (variable) x D
     locs = [i.pop("locs") for i in xs]                # (variable) x 2
     ctx_patch = [i.pop("ctx_patch") for i in xs]      # (variable) x K x D
     parent_inds = [i.pop("parent_inds") for i in xs]  # (variable)
 
+    leaf_fts_grouped = None
+    if "leaf_fts_grouped" in xs[0].keys():
+        print("leaf_fts_grouped found")
+        leaf_fts_grouped = [i.pop("leaf_fts_grouped") for i in xs]    # (variable) x (variable) X D
+    
     num_ims = [i.shape[0] for i in locs]
     max_ims = max(num_ims)
     num_ims = torch.LongTensor(num_ims)
@@ -298,10 +309,34 @@ def collate_fn(xs):
     # So here's a workaround
     _, k, d = ctx_patch[0].shape
     if k == 0:
-        ctx_patch = torch.zeros((locs.size(0), max_ims, 0, d), dtype=ctx_patch[0].dtype, device=ctx_patch[0].device)
+        ctx_patch = torch.zeros((locs.size(0), max_ims, 0, d), dtype=ctx_patch[0].dtype, device=ctx_patch[0].device)            
     else:
         ctx_patch = torch.cat([pad(i, (0, 0, 0, 0, 0, max_ims - i.shape[0]))[None] for i in ctx_patch])
+        
+    if leaf_fts_grouped is not None:
+        d_leaf = leaf_fts_grouped[0].shape[-1]                         # 1024
+        max_leafs = max(t.shape[1] for t in leaf_fts_grouped)          # second‑dim ragged
 
+        if max_leafs == 0:                                             # completely empty case
+            leaf_fts_grouped_pad = torch.zeros(
+                (len(xs), max_ims, 0, d_leaf),
+                dtype=leaf_fts_grouped[0].dtype,
+                device=leaf_fts_grouped[0].device
+            )
+            leaf_fts_mask = torch.zeros(
+                (len(xs), max_ims, 0),
+                dtype=torch.bool,
+                device=leaf_fts_grouped[0].device
+            )
+        else:
+            leaf_fts_grouped_pad = torch.cat([
+                pad(t,
+                    (0, 0,                              # D‑dim (no pad)
+                     0, max_leafs - t.shape[1],         # pad leaves   (M‑dim)
+                     0, max_ims  - t.shape[0]))[None]   # pad patches  (N‑dim)
+                for t in leaf_fts_grouped
+            ])
+            
     padded_data = {
         "fts": fts,
         "locs": locs,                # B x MaxIms x 2
@@ -309,21 +344,16 @@ def collate_fn(xs):
         "parent_inds": parent_inds,  # B x MaxIms
         "num_ims": num_ims,          # B
     }
-
+    
+    if leaf_fts_grouped is not None:
+        padded_data["leaf_fts_grouped"] = leaf_fts_grouped_pad  # (B, max_ims, max_leafs, 1024)
+    
     # `slide` is included by the dataset, but not during recursion (see `PreprocessedSlide.iter`)
     if "slide" in xs[0].keys():
         extra = {"slide": [i.pop("slide") for i in xs]}
     else:
         extra = {}
 
-    # print shape of each field
-    # for k, v in padded_data.items():
-    #     print(f"{k}: {v.shape}")
-
     batch = default_collate(xs) | padded_data | extra
-    
-    # 3) re‑attach the leaf fields verbatim
-    for k, v in leaf_fields.items():
-        batch[k] = v
-    
+        
     return batch

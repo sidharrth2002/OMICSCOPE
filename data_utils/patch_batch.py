@@ -98,8 +98,19 @@ def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_m
         # get transcriptomics based on the patch features
         transcriptomics = get_transcriptomics_data(batch['fts'], transcriptomics_model_path)
         batch['transcriptomics'] = transcriptomics
-
-    # TODO: elif transcriptomics_type == 'highest-magnification':
+    
+    # TODO: Complete this!
+    elif transcriptomics_type == 'highest-magnification':
+        # we only want to do transcriptomics on the leaves, i.e. the highest magnification patches
+        # shape is [batch size x max images x num patches x embedding dim]
+        # since it's padded, I only want to do transcriptomics on the non-zero patches and average them
+        print(f"Elements in batch: {batch.keys()}")
+        print(f"Batch fts length: {len(batch['fts'])}")
+        print(f"Batch fts[0] shape: {batch['fts'][0].shape}")
+        if "leaf_fts_grouped" in batch:
+            print(f"Batch leaf_fts_grouped length: {len(batch['leaf_fts_grouped'])}")
+            print(f"Batch leaf_fts_grouped[0] shape: {batch['leaf_fts_grouped'][0].shape}")
+            print(f"Batch leaf_fts_grouped[1] shape: {batch['leaf_fts_grouped'][1].shape}")
 
     batch = {i: utils.todevice(j, device) for i, j in batch.items()}
     return PatchBatch(**batch)

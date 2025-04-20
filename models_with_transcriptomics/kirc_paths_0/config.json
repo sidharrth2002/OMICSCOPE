@@ -34,7 +34,7 @@
         "hierarchical_ctx_mlp_hidden_dim": 256,
         "lstm": true,
         "add_transcriptomics": true,
-        "transcriptomics_type": "multi-magnification",
+        "transcriptomics_type": "highest-magnification",
         "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_porpoise_genes_2layer/epoch=9-step=3950.ckpt"
     },
     "root_name": "kirc_paths"
