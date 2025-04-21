@@ -42,6 +42,7 @@ class PATHSProcessorConfig(ModelConfig):
     transcriptomics_type: str = "none" # by default, no transcriptomics -- but this should either be multi-magnification or highest-magnification
     transcriptomics_model_path: str = None  # path to the transcriptomics model
     transcriptomics_leaf_frac: float = 1.0 # fraction of highest magnification leaves to use for transcriptomics at each level
+    transcriptomics_combine_method: str = "residual_enrichment" # can also be "attention_weigted_sum"
     
     random_rec_baseline: bool = False  # random patch selection. just used for ablation
 

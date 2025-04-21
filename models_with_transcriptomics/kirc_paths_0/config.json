@@ -35,8 +35,9 @@
         "lstm": true,
         "add_transcriptomics": true,
         "transcriptomics_type": "highest-magnification",
-        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/h_to_t_uni_porpoise_genes_2layer/epoch=9-step=3950.ckpt",
-        "transcriptomics_leaf_frac": 0.2
+        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/center_spots_stnet_kidney_highest_mag/epoch=9-step=1380.ckpt",
+        "transcriptomics_leaf_frac": 0.2,
+        "transcriptomics_combine_method": "attention_weighted_sum"
     },
     "root_name": "kirc_paths"
 }

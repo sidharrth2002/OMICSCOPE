@@ -120,6 +120,7 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
     missing_idx, fingerprints = [], []
 
     for i in range(B):
+        print(f"Patch feature {i} shape: {patch_features[i].shape}")
         fp = tensor_fingerprint(patch_features[i], ndigits=4)  # or None for exact
         if fp in CACHE:                      # hit
             print(f"Cache hit for {fp}")
