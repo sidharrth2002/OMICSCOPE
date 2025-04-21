@@ -61,7 +61,7 @@ class AttentionWeightedSum(nn.Module):
     def __init__(self, feat_1_dim, feat_2_dim):
         super(AttentionWeightedSum, self).__init__()
         # TODO: finish this, refer here: https://github.com/sidharrth2002/text-scoring/blob/main/implementations/model/tabular_combiner.py
-
+        pass
 
 class PATHSProcessor(nn.Module, Processor):
     """
