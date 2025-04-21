@@ -95,67 +95,147 @@ def tensor_fingerprint(
     return hashlib.blake2b(buf, digest_size=8).hexdigest()  # 8 bytes → 16‑char hex
 
 def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model_path: str) -> torch.Tensor:
-    global transcriptomics_model
+    """
+    Predicts transcriptomics from patch embeddings (non-zero ones),
+    using a pre-trained model, with caching support.
     
+    Args:
+        patch_features (Tensor): shape [P, D]
+        transcriptomics_model_path (str): path to the model
+    
+    Returns:
+        Tensor: shape [P, G] — transcriptomics predictions
+    """
+    global transcriptomics_model
+
     if transcriptomics_model is None:
-        # Load the model
         print("Loading transcriptomics model...")
         transcriptomics_model = load_model(transcriptomics_model_path)
     
     print(f"Patch features shape: {patch_features.shape}")
-    
-    squeeze_back = False
-    if patch_features.dim() == 2:                    # (P, D)
-        patch_features = patch_features.unsqueeze(0) # (1, P, D)
-        squeeze_back = True
-    
-    B, P, _ = patch_features.shape
-    device  = patch_features.device
+    device = patch_features.device
+    P, D = patch_features.shape
     out_dim = transcriptomics_model.num_outputs
-    result  = torch.empty((B, P, out_dim), device=device)
 
-    # -----------------------------------------------------------------------
-    # 1) split cached vs. missing by hashing each slide tensor once
-    # -----------------------------------------------------------------------
+    result = torch.zeros((P, out_dim), device=device)
     missing_idx, fingerprints = [], []
 
-    for i in range(B):
-        print(f"Patch feature {i} shape: {patch_features[i].shape}")
-        fp = tensor_fingerprint(patch_features[i], ndigits=4)  # or None for exact
-        if fp in CACHE:                      # hit
+    for i in range(P):
+        patch_i = patch_features[i]  # shape: [D]
+        # print(f"Patch {i} non-zero count: {torch.count_nonzero(patch_i)} / {patch_i.numel()}")
+
+        fp = tensor_fingerprint(patch_i, ndigits=4)
+        if fp in CACHE:
             print(f"Cache hit for {fp}")
             result[i] = CACHE[fp].to(device)
-        else:                                # miss
+        else:
             fingerprints.append(fp)
             missing_idx.append(i)
 
-    # -----------------------------------------------------------------------
-    # 2) run the model once for all misses
-    # -----------------------------------------------------------------------
     if missing_idx:
-        feats  = patch_features[missing_idx]                 # (n_missing, P, 1024)
+        feats = patch_features[missing_idx]  # [num_missing, D]
+        print(f"Missing patch features shape: {feats.shape}")
+
+        if len(feats) < 1000:
+            batch_size = len(feats)
+        else:
+            # TODO: adjust this if diffusion starts to crash
+            batch_size = 1000
+
         loader = torch.utils.data.DataLoader(
-            MiniPatchDataset(feats), batch_size=len(missing_idx)
+            MiniPatchDataset(feats),
+            batch_size=batch_size,
         )
+
+        print(f"Loader length: {len(loader)}")
+        print(f"First item shape: {loader.dataset[0]['foundation_model_features'].shape}")
 
         trainer = pl.Trainer(
             accelerator="gpu" if torch.cuda.is_available() else "cpu",
             devices=1,
-            logger=False, enable_progress_bar=False, enable_model_summary=False,
+            logger=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
         )
 
         with suppress_logging():
-            preds = torch.cat(trainer.predict(transcriptomics_model, dataloaders=loader), dim=0)  # (n_missing, P, out_dim)
+            preds = torch.cat(trainer.predict(transcriptomics_model, dataloaders=loader), dim=0)  # [num_missing, G]
 
-        # write to output and cache
         result[missing_idx] = preds
-        for fp, pred in zip(fingerprints, preds):
-            CACHE[fp] = pred.to(dtype=torch.float16, device="cpu")  # light‑weight cache
 
-    if squeeze_back:                                     # original input was 2‑D
-        result = result.squeeze(0)                     # -> (P, out_dim)
+        for fp, pred in zip(fingerprints, preds):
+            CACHE[fp] = pred.to(dtype=torch.float16, device="cpu")
 
     return result
+
+# def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model_path: str) -> torch.Tensor:
+#     global transcriptomics_model
+    
+#     if transcriptomics_model is None:
+#         # Load the model
+#         print("Loading transcriptomics model...")
+#         transcriptomics_model = load_model(transcriptomics_model_path)
+    
+#     print(f"Patch features shape: {patch_features.shape}")
+    
+#     squeeze_back = False
+#     if patch_features.dim() == 2:                    # (P, D)
+#         patch_features = patch_features.unsqueeze(0) # (1, P, D)
+#         squeeze_back = True
+    
+#     B, P, _ = patch_features.shape
+#     device  = patch_features.device
+#     out_dim = transcriptomics_model.num_outputs
+#     result  = torch.empty((B, P, out_dim), device=device)
+
+#     # -----------------------------------------------------------------------
+#     # 1) split cached vs. missing by hashing each slide tensor once
+#     # -----------------------------------------------------------------------
+#     missing_idx, fingerprints = [], []
+
+#     for i in range(B):
+#         print(f"Patch feature {i} shape: {patch_features[i].shape}")
+#         print(patch_features[i])
+#         # print how many are non-zero
+#         print(f"Patch feature {i} non-zero count: {torch.count_nonzero(patch_features[i])} out of {patch_features[i].numel()}")
+#         fp = tensor_fingerprint(patch_features[i], ndigits=4)  # or None for exact
+#         if fp in CACHE:                      # hit
+#             print(f"Cache hit for {fp}")
+#             result[i] = CACHE[fp].to(device)
+#         else:                                # miss
+#             fingerprints.append(fp)
+#             missing_idx.append(i)
+
+#     # -----------------------------------------------------------------------
+#     # 2) run the model once for all misses
+#     # -----------------------------------------------------------------------
+#     if missing_idx:
+#         feats  = patch_features[missing_idx]                 # (n_missing, P, 1024)
+#         print(f"Missing patch features shape: {feats.shape}")
+#         loader = torch.utils.data.DataLoader(
+#             MiniPatchDataset(feats), batch_size=len(missing_idx)
+#         )
+#         print(f"Loader length: {len(loader)}")
+#         print(f"First batch shape: {loader.dataset[0]['foundation_model_features'].shape}")
+
+#         trainer = pl.Trainer(
+#             accelerator="gpu" if torch.cuda.is_available() else "cpu",
+#             devices=1,
+#             logger=False, enable_progress_bar=False, enable_model_summary=False,
+#         )
+
+#         with suppress_logging():
+#             preds = torch.cat(trainer.predict(transcriptomics_model, dataloaders=loader), dim=0)  # (n_missing, P, out_dim)
+
+#         # write to output and cache
+#         result[missing_idx] = preds
+#         for fp, pred in zip(fingerprints, preds):
+#             CACHE[fp] = pred.to(dtype=torch.float16, device="cpu")  # light‑weight cache
+
+#     if squeeze_back:                                     # original input was 2‑D
+#         result = result.squeeze(0)                     # -> (P, out_dim)
+
+#     return result
 
 def get_num_transcriptomics_features(transcriptomics_model_path: str) -> int:
     global transcriptomics_model

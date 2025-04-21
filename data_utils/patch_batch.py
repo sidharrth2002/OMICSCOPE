@@ -100,8 +100,38 @@ def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_m
         if transcriptomics_type == 'multi-magnification':
             # store unique identifiers for each patch, made up of slide id and patch locs
             # get transcriptomics based on the patch features
-            transcriptomics = get_transcriptomics_data(batch['fts'], transcriptomics_model_path)
-            batch['transcriptomics'] = transcriptomics
+            
+            # batch['fts] is of shape [batch size x images x embedding size]
+            # only run prediction on non-zero patches
+            # if it's a non-zero patch, fill the return tensor in that position with all zeros
+            # transcriptomics = get_transcriptomics_data(batch['fts'], transcriptomics_model_path)
+            # batch['transcriptomics'] = transcriptomics
+            fts = batch['fts']  # [B, N, D]
+            B, N, D = fts.shape
+
+            # Flatten to shape [B*N, D]
+            fts_flat = fts.view(-1, D)
+
+            # Identify non-zero patch embeddings
+            nonzero_mask = (fts_flat.abs().sum(dim=1) != 0)  # shape: [B*N]
+
+            # Select non-zero patch embeddings
+            valid_fts = fts_flat[nonzero_mask]  # [num_valid, D]
+            print(f"valid_fts shape: {valid_fts.shape}")
+
+            # Predict transcriptomics for valid patches only
+            pred_valid = get_transcriptomics_data(valid_fts, transcriptomics_model_path)  # [num_valid, G]
+            
+            # Allocate zero-filled tensor of shape [B*N, G]
+            transcriptomics_full = torch.zeros((B * N, pred_valid.shape[1]))
+            
+            # Fill predictions into corresponding positions
+            transcriptomics_full[nonzero_mask] = pred_valid
+
+            # Reshape back to [B, N, G]
+            batch['transcriptomics'] = transcriptomics_full.view(B, N, -1)
+            
+            print(f"batch['transcriptomics'] shape: {batch['transcriptomics'].shape}")
         
         # TODO: Complete this!
         elif transcriptomics_type == 'highest-magnification':
@@ -117,6 +147,8 @@ def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_m
             # ------------------------------------------------------------------ #
             mask           = leaf_fts.abs().sum(dim=-1) != 0       # (B, P, C)  True → real child
             valid_feats    = leaf_fts[mask]                        # (N_total, D)
+            print(f"leaf_fts shape: {leaf_fts.shape}")
+            print(f"valid_feats shape: {valid_feats.shape}")
 
             if valid_feats.numel() != 0:                           # rare edge‑case
                 # indices to map every child back to (slide, patch)

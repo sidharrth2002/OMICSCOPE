@@ -260,6 +260,10 @@ class PATHSProcessor(nn.Module, Processor):
             #     torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
             # )
             patch_ctx = torch.where(valid_mask, enriched_ctx, patch_ctx)
+            # print how many patches are not zero
+            print(
+                f"Number of patches with non-zero transcriptomics features: {valid_mask.sum()} out of {valid_mask.numel()}"
+            )
 
         ################# Global aggregation
         d = self.config.trans_dim
