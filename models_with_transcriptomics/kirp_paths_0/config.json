@@ -34,7 +34,11 @@
         "importance_mlp_hidden_dim": 128,
         "hierarchical_ctx_mlp_hidden_dim": 256,
         "lstm": true,
-        "add_transcriptomics": true
+        "add_transcriptomics": true,
+        "transcriptomics_type": "multi-magnification",
+        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/image_grid_stnet_kidney/epoch=17-step=2430.ckpt",
+        "transcriptomics_leaf_frac": 0.2,
+        "transcriptomics_combine_method": "residual_enrichment"
     },
     "root_name": "kirp_paths"
 }

@@ -272,6 +272,11 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
     power = base_power
 
     for i in range(num_levels):
+        # save the batch to a file
+        # with open(f"batch_level_{i}.pkl", "wb") as f:
+        #     pickle.dump(batch["leaf_fts_grouped"], f)
+        
+        print(f"Level {i} / {num_levels}")
         locs_cpu = batch["locs"]
 
         with autocast(enabled=use_mixed_precision):

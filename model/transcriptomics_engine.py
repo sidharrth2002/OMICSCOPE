@@ -110,10 +110,12 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
 
     if transcriptomics_model is None:
         print("Loading transcriptomics model...")
-        transcriptomics_model = load_model(transcriptomics_model_path)
+        transcriptomics_model = load_model(transcriptomics_model_path).to(torch.device('cuda'))
     
     print(f"Patch features shape: {patch_features.shape}")
     device = patch_features.device
+    print(f"Patch features device: {device}")
+    print(f"Model device: {device}")
     P, D = patch_features.shape
     out_dim = transcriptomics_model.num_outputs
 
@@ -126,7 +128,7 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
 
         fp = tensor_fingerprint(patch_i, ndigits=4)
         if fp in CACHE:
-            print(f"Cache hit for {fp}")
+            # print(f"Cache hit for {fp}")
             result[i] = CACHE[fp].to(device)
         else:
             fingerprints.append(fp)
@@ -161,10 +163,12 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
         with suppress_logging():
             preds = torch.cat(trainer.predict(transcriptomics_model, dataloaders=loader), dim=0)  # [num_missing, G]
 
-        result[missing_idx] = preds
+        print(f"preds device: {preds.device}")
+
+        result[missing_idx] = preds.to(device)
 
         for fp, pred in zip(fingerprints, preds):
-            CACHE[fp] = pred.to(dtype=torch.float16, device="cpu")
+            CACHE[fp] = pred.to(dtype=torch.float32, device="cpu")
 
     return result
 

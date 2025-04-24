@@ -229,7 +229,7 @@ def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_m
     return PatchBatch(**batch)
 
 
-def from_raw_slide(slide: RawSlide, im_enc, transform, device=None) -> PatchBatch:
+def from_raw_slide(slide: RawSlide, im_enc, transform, device=None, transcriptomics_model_path=None) -> PatchBatch:
     """
     Creates a PatchBatch object from a RawSlide + Image Encoder, ready to be input to the model.
 
@@ -252,8 +252,9 @@ def from_raw_slide(slide: RawSlide, im_enc, transform, device=None) -> PatchBatc
         slide.load_patches()
     with torch.no_grad():
         fts = im_enc(transform(slide.patches.to(device)))
+        # fts = im_enc(transform(slide.patches))
 
-    transcriptomics = get_transcriptomics_data(fts)
+    transcriptomics = get_transcriptomics_data(fts, transcriptomics_model_path=transcriptomics_model_path)
 
     num_ims = torch.LongTensor([slide.locs.size(0)]).to(device)
     return PatchBatch(

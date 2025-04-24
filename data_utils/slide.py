@@ -77,6 +77,31 @@ class RawSlide:
             out = camelyon_map(out)
         return out
 
+    def get_patch_data(self, patch_loc):
+        """
+        Retrieves patch data for a given location coordinate
+        
+        Args:
+            patch_loc: (y, x) tuple or tensor specifying patch location 
+                    in current power's coordinate system
+        
+        Returns:
+            torch.Tensor: Patch data in shape [C, H, W]
+        """
+        if self.patches is None:
+            raise Exception("Patches not loaded. Call load_patches() first.")
+        
+        if not isinstance(patch_loc, torch.Tensor):
+            patch_loc = torch.tensor(patch_loc, device=self.locs.device)
+        
+        matches = torch.all(self.locs == patch_loc, dim=1)
+        match_indices = torch.nonzero(matches, as_tuple=True)[0]
+        
+        if len(match_indices) == 0:
+            raise ValueError(f"No patch found at location {patch_loc.tolist()}")
+                
+        return self.patches[match_indices[0]]
+
     def load_patches(self, wsi=None):
         if self.patches is not None:
             print("WARNING: Trying to load_patches() but they have already been loaded.")
@@ -312,6 +337,8 @@ class PreprocessedSlide:
             bg = fts_m1[next_locs_safe[:, 0], next_locs_safe[:, 1]].sum(dim=1) != 0 # (0,0) is always within bounds
             # bg = fts_m1[next_locs[:, 0], next_locs[:, 1]].sum(dim=1) != 0
             # print("bg", bg)
+            
+            # TODO: IMPORTANT, PUT THIS BACK
             keep = torch.logical_and(inb, bg)
             
             current_locs = next_locs[keep]
@@ -330,6 +357,10 @@ class PreprocessedSlide:
                     torch.arange(current_locs.size(0))
                 )
                 os._exit(0)
+            
+            # parent_set = set(tuple(x.tolist()) for x in current_locs)
+            # child_set = set(tuple((x//2).tolist()) for x in next_locs)
+            # assert child_set.issubset(parent_set), "Hierarchy violation detected"
                             
         # gather features on leaf level
         leaf_fts = self.fts[-1][current_locs[:, 0], current_locs[:, 1]]
@@ -393,7 +424,11 @@ class PreprocessedSlide:
             # print(f"Only keeping {K} of {leaf_counts[p].item()} for parent {p}")
             real_idxs = torch.nonzero(leaf_mask[p], as_tuple=True)[0]
             if real_idxs.numel() > K:
+                # scores = torch.norm(leaf_fts_grouped[p, real_idxs], dim=1)
+                # sel = real_idxs[torch.argsort(-scores)[:K]]
+                # TODO: IMPORTANT, put this back                
                 sel = real_idxs[torch.randperm(real_idxs.numel(), device=device)[:K]]
+                print(f"Keeping {sel}")
             else:
                 sel = real_idxs
             pruned_locs[p, :sel.numel()] = leaf_locs_grouped[p, sel]
@@ -476,11 +511,18 @@ class PreprocessedSlide:
         filter_bound = torch.logical_and(new_locs[:, 0] < x, new_locs[:, 1] < y)
         new_locs[~filter_bound] *= 0  # prevent indexerror on next line (modification doesnt matter as they're about to be filtered out)
         filter_bg = fts[new_locs[:, 0], new_locs[:, 1]].sum(dim=1) != 0
+        # print number of patches before and after filtering
+        # print(f"Before filtering for bg patches: {new_locs.shape[0]} patches, {parent_inds.shape[0]} parent_inds, {ctx_patch.shape[0]} ctx_patch")
+
+        # TODO: VERY IMPORTANT, PUT IT BACK TO FILTER FOR BACKGROUND 
         filter = torch.logical_and(filter_bound, filter_bg)
 
         new_locs = new_locs[filter]
         parent_inds = parent_inds[filter]
         ctx_patch = ctx_patch[filter]
+
+        # print number of patches after filtering
+        # print(f"After filtering for bg patches: {new_locs.shape[0]} patches, {parent_inds.shape[0]} parent_inds, {ctx_patch.shape[0]} ctx_patch")
 
         new_fts = fts[new_locs[:, 0], new_locs[:, 1]]
 
