@@ -94,7 +94,7 @@ def tensor_fingerprint(
     buf = t.detach().to(dtype=torch.float32, device="cpu", copy=False).contiguous().numpy().tobytes()
     return hashlib.blake2b(buf, digest_size=8).hexdigest()  # 8 bytes → 16‑char hex
 
-def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model_path: str) -> torch.Tensor:
+def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model_path: str, batch_size: int = 1000) -> torch.Tensor:
     """
     Predicts transcriptomics from patch embeddings (non-zero ones),
     using a pre-trained model, with caching support.
@@ -109,7 +109,7 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
     global transcriptomics_model
 
     if transcriptomics_model is None:
-        print("Loading transcriptomics model...")
+        print(f"Loading transcriptomics model from {transcriptomics_model_path}...")
         transcriptomics_model = load_model(transcriptomics_model_path).to(torch.device('cuda'))
     
     print(f"Patch features shape: {patch_features.shape}")
@@ -138,11 +138,11 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
         feats = patch_features[missing_idx]  # [num_missing, D]
         print(f"Missing patch features shape: {feats.shape}")
 
-        if len(feats) < 1000:
+        if len(feats) < batch_size:
             batch_size = len(feats)
-        else:
-            # TODO: adjust this if diffusion starts to crash
-            batch_size = 1000
+        # else:
+        #     # TODO: adjust this if diffusion starts to crash
+        #     batch_size = 1000
 
         loader = torch.utils.data.DataLoader(
             MiniPatchDataset(feats),
@@ -246,7 +246,7 @@ def get_num_transcriptomics_features(transcriptomics_model_path: str) -> int:
     
     if transcriptomics_model is None:
         # Load the model
-        print("Loading transcriptomics model...")
+        print(f"Loading transcriptomics model from {transcriptomics_model_path}...")
         transcriptomics_model = load_model(transcriptomics_model_path)
         
     # TODO: make this dynamic idk

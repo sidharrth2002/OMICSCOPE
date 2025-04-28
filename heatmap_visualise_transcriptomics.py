@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 from os.path import join
@@ -8,13 +9,14 @@ import matplotlib.pyplot as plt
 import logging
 from matplotlib.patches import Rectangle
 import xml.etree.ElementTree as ET
+from tiatoolbox.wsicore.wsireader import WSIReader
 
-from model.transcriptomics_engine import get_transcriptomics_data
+from model.transcriptomics_engine import get_transcriptomics_data, tensor_fingerprint
 import utils
 from config import Config
 from utils import device
 from data_utils.patch_batch import from_raw_slide
-from data_utils.slide import load_raw_slide
+from data_utils.slide import RawSlide, load_raw_slide
 from model.interface import RecursiveModel
 from model.image_encoder import from_name
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -63,6 +65,7 @@ def parse_camelyon17_anno_file(path: str):
 
     return polygons
 
+
 # `pix` pixels at depth `depth` to a different depth
 def convert_pix(pix, depth, to_depth):
     e = to_depth - depth
@@ -71,120 +74,334 @@ def convert_pix(pix, depth, to_depth):
     else:
         return pix * 2**e
 
+
 def to_pix_space(depth, y, x):
     return convert_pix(y, depth, 0), convert_pix(x, depth, 0)
 
-def plot_full_gene_expression_overlay(
+
+# def plot_all_gene_expression_overlay(
+#     config: Config,
+#     model: RecursiveModel,
+#     slide_depths: list,
+#     gene_list: list,
+#     base_img: np.ndarray,
+#     transform,
+#     transcriptomics_model_path: str,
+#     out_path: str = None,
+#     image_encoder=None,
+#     pad: int = 128,
+#     P: int = 256,
+# ):
+#     def convert_pix(pix, depth, to_depth):
+#         e = to_depth - depth
+#         if e <= 0:
+#             return pix // 2 ** (-e)
+#         else:
+#             return pix * 2**e
+
+#     def to_pix_space(depth, y, x):
+#         return convert_pix(y, depth, 0), convert_pix(x, depth, 0)
+
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+#     # Get base slide to access WSI path
+#     base_slide = slide_depths[0]
+
+#     wsi = WSIReader.open(base_slide.path)
+#     try:
+#         # power = slide_depths[-1].power
+#         power = config.base_power
+#         ht, wt = wsi.slide_dimensions(resolution=power, units="power")
+#         patch_size = config.model_config.patch_size
+#         print(f"Patch size: {patch_size}")
+
+#         # Generate grid of all possible patch coordinates
+#         y_coords = range(0, ht - patch_size + 1, patch_size)
+#         x_coords = range(0, wt - patch_size + 1, patch_size)
+#         all_locs = torch.tensor(
+#             [(y, x) for y in y_coords for x in x_coords],
+#             dtype=torch.long
+#         )
+
+#         # Calculate proper load_size
+#         load_size = (
+#             utils.next_multiple(ht, patch_size),
+#             utils.next_multiple(wt, patch_size)
+#         )
+
+#         print(f"Load size in plot_all_gene_expression_overlay: {load_size}")
+#     finally:
+#         wsi.openslide_wsi.close()
+
+#     # Create new slide at highest mag with tissue_threshold=0 to get ALL patches
+#     highest_mag_slide = RawSlide(
+#         path=base_slide.path,
+#         power=config.base_power,
+#         patch_size=patch_size,
+#         load_locs=all_locs,
+#         load_size=load_size,
+#         ctx_slide=torch.zeros((0,)),
+#         parent_ctx_patch=None,
+#         tissue_threshold=0.025,
+#         ctx_patch_dim=model.procs[0].ctx_dim()[1]
+#     )
+
+#     print(all_locs)
+#     print(f"Total number of patches: {len(all_locs)}")
+#     print(f"Load size: {load_size}")
+
+#     highest_mag_slide.load_patches()
+
+#     # Get ALL patch locations at highest magnification
+#     highest_mag_patches = highest_mag_slide.locs
+#     depth = config.num_levels - 1
+
+#     transcriptomics_results = []
+#     patches = []
+
+#     # Process all patches
+#     with torch.no_grad():
+#         for patch_loc in highest_mag_patches:
+#             try:
+#                 patch_data = highest_mag_slide.get_patch_data(patch_loc)
+#                 patches.append(transform(patch_data))
+#             except Exception as e:
+#                 print(f"Skipping patch {patch_loc}: {str(e)}")
+#                 continue
+
+#     # Batch process through encoder
+#     if patches:
+#         patches = torch.cat([p.unsqueeze(0).to(device) for p in patches])
+#         print(f"Shape of patches before encoder: {patches.shape}")
+#         # infer in batches
+#         encoded_patches = []
+#         inference_batch_size = 2
+#         for i in range(0, len(patches), inference_batch_size):
+#             batch_patches = patches[i : i + inference_batch_size]
+#             print(f"Shape of batch_patches: {batch_patches.shape}")
+#             # run the encoder
+#             batch_patches = image_encoder(batch_patches)
+#             # write to a file
+#             torch.save(
+#                 batch_patches,
+#                 os.path.join(
+#                     "./",
+#                     f"encoded_patches_{i // inference_batch_size}.pt",
+#                 ),
+#             )
+#             del batch_patches
+#             # encoded_patches.append(batch_patches)
+
+#         # load all encoded patches
+#         for i in range(0, len(patches), inference_batch_size):
+#             batch_patches = torch.load(
+#                 os.path.join(
+#                     "./",
+#                     f"encoded_patches_{i // inference_batch_size}.pt",
+#                 )
+#             )
+#             encoded_patches.append(batch_patches)
+
+#         # concatenate all encoded patches
+#         patches = torch.cat(encoded_patches)
+#         print(f"Shape of patches after encoder: {patches.shape}")
+
+#         # patches = image_encoder(patches)
+#         transcriptomics_results = get_transcriptomics_data(
+#             patches, transcriptomics_model_path=transcriptomics_model_path, batch_size=inference_batch_size
+#         )
+#     else:
+#         print("No valid patches found for gene expression analysis")
+#         return
+
+#     # Visualization parameters
+#     for gene_idx, gene_name in enumerate(gene_list):
+#         fig, ax = plt.subplots(figsize=(8, 8))
+#         ax.imshow(base_img)
+#         ax.axis("off")
+
+#         # Normalize expressions using robust scaling
+#         expressions = transcriptomics_results[:, gene_idx].cpu().numpy()
+#         vmin, vmax = np.quantile(expressions, [0.05, 0.95])
+#         norm = plt.Normalize(vmin, vmax)
+#         cmap = plt.get_cmap("viridis")
+
+#         print(f"Number of highest mag patches: {highest_mag_patches}")
+
+#         # Plot all patches
+#         for patch_loc, expr in zip(highest_mag_patches, expressions):
+#             y_base, x_base = to_pix_space(depth, *patch_loc)
+#             patch_size = convert_pix(P, depth, 0)
+
+#             print(f"Patch loc: {patch_loc}, y_base: {y_base}, x_base: {x_base}")
+#             print(f"Patch size: {patch_size}")
+
+#             rect = Rectangle(
+#                 (x_base, y_base),
+#                 patch_size,
+#                 patch_size,
+#                 facecolor=cmap(norm(expr)),
+#                 edgecolor="red",
+#                 linewidth=0.8,
+#                 alpha=0.7,
+#             )
+#             ax.add_patch(rect)
+
+#         # Add colorbar with expression scale
+#         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+#         sm.set_array([])
+#         # cax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+#         # fig.colorbar(sm, cax=cax, label=f'{gene_name} Expression Level')
+#         cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
+#         cbar.set_label(f"{gene_name} Expression", rotation=270, labelpad=15)
+
+#         y_coords = [to_pix_space(depth, loc[0], 0)[0] for loc in highest_mag_patches]
+
+#         if y_coords:
+#             ax.set_ylim(max(y_coords) + pad + P, min(y_coords) - pad)
+
+#         # Save output
+#         if out_path:
+#             safe_name = "".join([c if c.isalnum() else "_" for c in gene_name])
+#             gene_path = f"{out_path}_FULL_{safe_name}_expression.pdf"
+#             plt.savefig(gene_path, bbox_inches='tight', dpi=300)
+
+#         plt.close(fig)
+
+
+def plot_all_gene_expression_overlay(
     config: Config,
+    model: RecursiveModel,
     slide_depths: list,
-    gene_list: list,
+    full_gene_list: list,
+    chosen_genes: list,
     base_img: np.ndarray,
     transform,
     transcriptomics_model_path: str,
-    out_path: str,
+    out_path: str = None,
     image_encoder=None,
     pad: int = 128,
     P: int = 256,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    depth = config.num_levels - 1
-    # highest_mag_slide = slide_depths[-1]
-    
-    # start with everything?
-    selected_slide = slide_depths[0]
-    
-    # calculate total WSI dimensions at highest mag
-    base_height, base_width = base_img.shape[:2]
-    total_width = convert_pix(base_width, 0, depth)
-    total_height = convert_pix(base_height, 0, depth)
-    
-    # generate all possible patch locations at highest mag
-    patch_size = config.model_config.patch_size
-    x_coords = range(0, total_width, patch_size)
-    y_coords = range(0, total_height, patch_size)
-    
-    # create grid of all possible patches
-    all_patch_locs = [(y, x) for y in y_coords for x in x_coords]
-    
-    # predict gene expression for all patches
-    all_patch_tensors = []
+
+    # so the best way to do this is to take the slide at the top of the hierarchy
+    # and convert all it's patches to it's highest mag children
+    # essentially, we recurse without any importance calculation
+
+    # top level side
+    slide = copy.deepcopy(slide_depths[0])
+    # let's print out the locs
+    print("Top level slide locs:", slide.locs)
+
+    # now let's recursively iterate to the bottom level
+    # without any importance filtering
+
+    for depth in range(config.num_levels):
+        print(f"Recursing to depth {depth + 1} / {config.num_levels}...")
+
+        slide = slide.simple_recurse(
+            multiplier=config.magnification_factor,
+        )
+        slide.camelyon = True
+        slide.load_patches(process_ctx=False)
+
+        print(f"Locs at depth {depth + 1} / {config.num_levels}: {slide.locs.shape[0]}")
+
     transcriptomics_results = []
-    
-    invalid_indices = []
+    patches = []
     with torch.no_grad():
-        for i in range(len(all_patch_locs)):
-            try:
-                # get patch data directly from raw slide
-                patch_data = selected_slide.get_patch_data(all_patch_locs[i])
-                patch_tensor = transform(patch_data).unsqueeze(0).to(device)
-                all_patch_tensors.append(patch_tensor)
-                print("Found patch")
-            except Exception as e:
-                # print(f"Error processing patch {patch_loc}: {str(e)}")
-                invalid_indices.append(i)
-                continue
+        for patch_loc in slide.locs:
+            print(patch_loc)
+            patch_data = slide.get_patch_data(patch_loc)
+            patches.append(transform(patch_data))
 
-    # remove invalid indices from all_patch_locs and all_patch_tensors
-    all_patch_locs = [loc for i, loc in enumerate(all_patch_locs) if i not in invalid_indices]
-    print(f"Found {len(all_patch_locs)} valid patches")
+    patches = [patch.unsqueeze(0).to(device) for patch in patches]
+    patches = torch.cat(patches)
 
-    print(len(selected_slide.locs))
-
-    # patches is a list of tensors, each with shape (1, C, P, P)
-    # Concatenate them into a single tensor
-    # Shape: (N, C, P, P)
-    patches = torch.cat(all_patch_tensors)
     print(f"Shape of patches before encoder: {patches.shape}")
+    # infer in batches
+    encoded_patches = []
+    inference_batch_size = 4
+    for i in range(0, len(patches), inference_batch_size):
+        batch_patches = patches[i : i + inference_batch_size]
+        print(f"Shape of batch_patches: {batch_patches.shape}")
+        # run the encoder
+        batch_patches = image_encoder(batch_patches)
+        # write to a file
+        torch.save(
+            batch_patches,
+            os.path.join(
+                "/auto/archive/tcga/sn666/inference_artifacts/",
+                tensor_fingerprint(patches[i : i + inference_batch_size]) + ".pt",
+            ),
+        )
+        del batch_patches
+        # encoded_patches.append(batch_patches)
+    # load all encoded patches
+    for i in range(0, len(patches), inference_batch_size):
+        batch_patches = torch.load(
+            os.path.join(
+                "/auto/archive/tcga/sn666/inference_artifacts/",
+                tensor_fingerprint(patches[i : i + inference_batch_size]) + ".pt",
+            )
+        )
+        encoded_patches.append(batch_patches)
+    # concatenate all encoded patches
+    patches = torch.cat(encoded_patches)
 
-    # run the encoder
-    patches = image_encoder(patches)
-    print(f"Shape of patches after encoder: {patches.shape}")
+    # patches = image_encoder(patches)
+    # print(f"Shape of patches after encoder: {patches.shape}")
 
     transcriptomics_results = get_transcriptomics_data(
         patches, transcriptomics_model_path=transcriptomics_model_path
     )
-    
-    for gene_idx, gene_name in enumerate(gene_list):
-        print(f"Plotting {gene_name} expression")
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.imshow(base_img, aspect="equal")
-        ax.set_xticks([])
-        ax.set_yticks([])
-        
-        # normalize expressions using robust scaling
-        expressions = transcriptomics_results[:, gene_idx].cpu()
-        vmin, vmax = np.quantile(expressions, [0.05, 0.95])
-        norm = plt.Normalize(vmin, vmax)
-        cmap = plt.get_cmap("viridis")
-        
-        # plot all patches
-        for (patch_loc, expr) in zip(all_patch_locs, expressions):
-            y_base, x_base = to_pix_space(depth, *patch_loc)
-            patch_size_px = convert_pix(P, depth, 0)
-            
-            rect = Rectangle(
-                (x_base, y_base), patch_size_px, patch_size_px,
-                facecolor=cmap(norm(expr)),
-                edgecolor="none",
-                alpha=0.6
-            )
-            ax.add_patch(rect)
-            
-        # add colorbar
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
-        cax = fig.add_axes([0.85, 0.15, 0.03, 0.7])
-        fig.colorbar(sm, cax=cax, label=f"{gene_name} Expression Level")
-        
-        # save output
-        if out_path:
-            safe_name = "".join([c if c.isalnum() else "_" for c in gene_name])
-            plt.savefig(
-                f"{out_path}_FULL_{safe_name}.pdf"
-            )
-        
-        plt.close(fig)
+
+    for gene_idx, gene_name in enumerate(full_gene_list):
+        if gene_name in chosen_genes:
+            fig, ax = plt.subplots(figsize=(8, 8))
+            ax.imshow(base_img)
+            ax.axis("off")
+
+            expressions = transcriptomics_results[:, gene_idx].cpu()
+            vmin, vmax = np.quantile(expressions, [0.05, 0.95])
+            norm = plt.Normalize(vmin, vmax)
+            cmap = plt.get_cmap("inferno")
+
+            for patch_loc, expr in zip(slide.locs, expressions):
+                y_base, x_base = to_pix_space(depth, *patch_loc)
+                patch_size = convert_pix(P, depth, 0)
+
+                rect = Rectangle(
+                    (x_base, y_base),
+                    patch_size,
+                    patch_size,
+                    facecolor=cmap(norm(expr)),
+                    edgecolor="red",
+                    linewidth=0.8,
+                    alpha=0.7,
+                )
+                ax.add_patch(rect)
+
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            cbar = plt.colorbar(sm, ax=ax, shrink=0.8)
+            cbar.set_label(f"{gene_name} Expression", rotation=270, labelpad=15)
+
+            y_coords = [to_pix_space(depth, loc[0], 0)[0] for loc in slide.locs]
+
+            if y_coords:
+                ax.set_ylim(max(y_coords) + pad + P, min(y_coords) - pad)
+
+            if out_path is not None:
+                safe_gene_name = "".join(c if c.isalnum() else "_" for c in gene_name)
+
+                gene_path = f"{out_path}_{safe_gene_name}_expression.pdf"
+                plt.savefig(gene_path, format="pdf", dpi=300, bbox_inches="tight")
+                print(f"Saved {gene_name} expression plot to {gene_path}")
+
+            plt.close(fig)
+
 
 def plot_gene_expression_overlay(
     config: Config,
@@ -220,6 +437,7 @@ def plot_gene_expression_overlay(
     patches = torch.cat(patches)
 
     # run the encoder
+    print(f"Shape of patches before encoder: {patches.shape}")
     patches = image_encoder(patches)
     print(f"Shape of patches after encoder: {patches.shape}")
 
@@ -238,9 +456,16 @@ def plot_gene_expression_overlay(
         norm = plt.Normalize(vmin, vmax)
         cmap = plt.get_cmap("inferno")
 
+        print(highest_mag_patches)
+
+        # os._exit(0)
+
         for patch_loc, expr in zip(highest_mag_patches, expressions):
             y_base, x_base = to_pix_space(depth, *patch_loc)
             patch_size = convert_pix(P, depth, 0)
+
+            print(f"Patch loc: {patch_loc}, y_base: {y_base}, x_base: {x_base}")
+            print(f"Patch size: {patch_size}")
 
             rect = Rectangle(
                 (x_base, y_base),
@@ -351,17 +576,19 @@ def heatmap_camelyon17_transcriptomics(
 
     # print the number of locs at each depth
     for depth in range(config.num_levels):
-        print(f"Depth {depth + 1} / {config.num_levels}: {slide_depths[depth].locs.shape[0]}")
-
-    os._exit(0)
+        print(
+            f"Depth {depth + 1} / {config.num_levels}: {slide_depths[depth].locs.shape[0]}"
+        )
 
     # get the base image for visualization
     bigimg = get_slide_rgb()
 
-    plot_full_gene_expression_overlay(
+    plot_all_gene_expression_overlay(
         config=config,
+        model=model,
         slide_depths=slide_depths,
-        gene_list=gene_list,
+        full_gene_list=gene_list,
+        chosen_genes=gene_list[:5],
         base_img=bigimg,
         transform=transform,
         transcriptomics_model_path=transcriptomics_model_path,
