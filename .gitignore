@@ -1,4 +1,5 @@
 run_paths.sh
+inference_artifacts/**
 
 out/
 .idea/
