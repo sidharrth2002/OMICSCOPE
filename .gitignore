@@ -1,4 +1,5 @@
 run_paths.sh
+run_paths_ablations.sh
 inference_artifacts/**
 
 out/
