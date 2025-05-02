@@ -34,7 +34,11 @@
         "importance_mlp_hidden_dim": 128,
         "hierarchical_ctx_mlp_hidden_dim": 256,
         "lstm": true,
-        "add_transcriptomics": true
+        "add_transcriptomics": true,
+        "transcriptomics_type": "highest-magnification",
+        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/stnet_lung_highest_mag/epoch=9-step=1970.ckpt",
+        "transcriptomics_leaf_frac": 0.2,
+        "transcriptomics_combine_method": "gated_enrichment"        
     },  
     "root_name": "luad_paths"
 }

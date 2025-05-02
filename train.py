@@ -234,6 +234,12 @@ if __name__ == "__main__":
         [0.7, 0.15, 0.15], config.seed, model.procs[0].ctx_dim()
     )
 
+    # save the test slide ids to a file in the model directory
+    test_slide_ids = [slide.slide_id for slide in test.slides]
+    with open(os.path.join(args.model_dir, "test_slide_ids.txt"), "w") as f:
+        for slide_id in test_slide_ids:
+            f.write(f"{slide_id}\n")
+    
     if config.early_stopping:
         assert val is not None, f"Must have validation set to use early stopping"
 

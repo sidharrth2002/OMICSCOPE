@@ -111,6 +111,8 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
     if transcriptomics_model is None:
         print(f"Loading transcriptomics model from {transcriptomics_model_path}...")
         transcriptomics_model = load_model(transcriptomics_model_path).to(torch.device('cuda'))
+        # set model to eval mode
+        transcriptomics_model.eval()
     
     print(f"Patch features shape: {patch_features.shape}")
     device = patch_features.device
@@ -248,7 +250,8 @@ def get_num_transcriptomics_features(transcriptomics_model_path: str) -> int:
         # Load the model
         print(f"Loading transcriptomics model from {transcriptomics_model_path}...")
         transcriptomics_model = load_model(transcriptomics_model_path)
-        
+        transcriptomics_model.eval()
+
     # TODO: make this dynamic idk
     return transcriptomics_model.num_outputs
 

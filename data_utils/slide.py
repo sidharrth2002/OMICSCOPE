@@ -332,6 +332,8 @@ class PreprocessedSlide:
         
         self.num_levels = num_levels
         self.leaf_frac = leaf_frac
+        
+        # print(f"Using leaf_frac {self.leaf_frac} for {self.slide_id}")
 
     def load_patches(self, wsi=None):
         assert wsi is None
@@ -457,6 +459,10 @@ class PreprocessedSlide:
         # 5) per‑parent fraction‑based pruning
         keep_counts = (leaf_counts.float() * self.leaf_frac).ceil().long().clamp(min=1)
         new_max     = int(keep_counts.max().item())
+        
+        # print(f"Leaf frac: {self.leaf_frac}")
+        # print(f"Keep counts: {keep_counts}")
+        # print(f"New max: {new_max}")
 
         pruned_locs = torch.zeros((num_parents, new_max, 2),
                                     dtype=leaf_locs.dtype, device=device)
@@ -474,6 +480,7 @@ class PreprocessedSlide:
                 # sel = real_idxs[torch.argsort(-scores)[:K]]
                 # TODO: IMPORTANT, put this back                
                 sel = real_idxs[torch.randperm(real_idxs.numel(), device=device)[:K]]
+                # sel = real_idxs[:K]  # deterministic top-K
                 # print(f"Keeping {sel}")
             else:
                 sel = real_idxs
