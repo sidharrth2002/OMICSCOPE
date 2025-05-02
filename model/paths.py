@@ -37,7 +37,8 @@ class CombineTranscriptomicsPatchCtx(nn.Module):
         )
 
     def forward(self, feat_1, feat_2):
-        x = torch.cat((feat_1, feat_2.clone().detach()), dim=-1)
+        x = torch.cat((feat_1, feat_2), dim=-1)
+        # x = torch.cat((feat_1, feat_2.clone().detach()), dim=-1)
         print(f"feat_1 shape: {feat_1.shape}, feat_2 shape: {feat_2.shape}, x shape: {x.shape}")
         # x shape: [batch_size, input_dim]
         residual = self.residual_proj(x)
@@ -56,6 +57,37 @@ class CombineTranscriptomicsPatchCtx(nn.Module):
         # Residual addition with activation
         out = F.relu(out + residual)
         return out
+
+class GatedTranscriptomicsFusion(nn.Module):
+    def __init__(self, feat1_dim, feat2_dim, hidden_dim, dropout_p=0.1):
+        super().__init__()
+        self.enricher = CombineTranscriptomicsPatchCtx(
+            feat_1_dim=feat1_dim,
+            feat_2_dim=feat2_dim,
+            hdim=hidden_dim,
+            dropout_p=dropout_p
+        )
+        self.gate_mlp = nn.Sequential(
+            nn.Linear(feat1_dim + hidden_dim + feat2_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, feat_1, feat_2):
+        # feat_1: [B,N,D], feat_2: [B,N,F]
+        # 1) mask: which patches actually have transcriptomics
+        valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()  # [B,N,1]
+
+        # 2) compute gate normally, then zero it where invalid
+        g = self.gate_mlp(torch.cat([feat_1, feat_2], dim=-1))        # [B,N,1]
+        g = g * valid                                                 # force g=0 for no-data
+
+        # 3) enrichment
+        enriched = self.enricher(feat_1, feat_2)                      # [B,N,D]
+
+        # 4) fuse
+        return g * enriched + (1.0 - g) * feat_1                      # [B,N,D]
 
 class AttentionWeightedSum(nn.Module):
     def __init__(self, feat_1_dim, feat_2_dim):
@@ -158,6 +190,15 @@ class PATHSProcessor(nn.Module, Processor):
                     feat_2_dim=get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path), 
                     hidden_dim=self.hdim, 
                 )
+            elif config.transcriptomics_combine_method == "gated_enrichment":
+                # feat1_dim = (self.dim + self.hdim) if config.lstm else self.dim
+                # feat2_dim = get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path)
+                self.combine_transcriptomics_patch_ctx = GatedTranscriptomicsFusion(
+                    feat1_dim=self.dim,
+                    feat2_dim=get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path),
+                    hidden_dim=self.hdim,
+                    dropout_p=0.2
+                )
             else:
                 raise ValueError(
                     f"Unknown transcriptomics combine method: {config.transcriptomics_combine_method}"
@@ -250,20 +291,26 @@ class PATHSProcessor(nn.Module, Processor):
 
             # print("adding transcriptomics features to patch context")
             # TODO: check if this is correct
-            valid_mask = transcriptomics.abs().sum(dim=-1, keepdim=True) != 0
-            # print("mask ", valid_mask)
-            enriched_ctx = self.combine_transcriptomics_patch_ctx(
-                feat_1=patch_ctx,
-                feat_2=transcriptomics,
-            )
-            # enriched_ctx = self.combine_transcriptomics_patch_ctx(
-            #     torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
-            # )
-            patch_ctx = torch.where(valid_mask, enriched_ctx, patch_ctx)
-            # print how many patches are not zero
-            print(
-                f"Number of patches with non-zero transcriptomics features: {valid_mask.sum()} out of {valid_mask.numel()}"
-            )
+            if self.config.transcriptomics_combine_method == "residual_enrichment":
+                valid_mask = transcriptomics.abs().sum(dim=-1, keepdim=True) != 0
+                # print("mask ", valid_mask)
+                enriched_ctx = self.combine_transcriptomics_patch_ctx(
+                    feat_1=patch_ctx,
+                    feat_2=transcriptomics,
+                )
+                # enriched_ctx = self.combine_transcriptomics_patch_ctx(
+                #     torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
+                # )
+                patch_ctx = torch.where(valid_mask, enriched_ctx, patch_ctx)
+                # print how many patches are not zero
+                print(
+                    f"Number of patches with non-zero transcriptomics features: {valid_mask.sum()} out of {valid_mask.numel()}"
+                )
+            elif self.config.transcriptomics_combine_method == "gated_enrichment":
+                patch_ctx = self.combine_transcriptomics_patch_ctx(
+                    feat_1=patch_ctx,        # [B, N, D]
+                    feat_2=transcriptomics   # [B, N, F]
+                )
 
         ################# Global aggregation
         d = self.config.trans_dim
