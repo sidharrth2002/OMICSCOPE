@@ -185,6 +185,7 @@ def train_loop(
                 magnification_factor=config.magnification_factor,
                 transcriptomics_type=config.model_config.transcriptomics_type,
                 transcriptomics_model_path=config.model_config.transcriptomics_model_path,
+                model_dir=model_dir,
             )
 
             test_eval.register(batch, hazards_or_logits, loss)

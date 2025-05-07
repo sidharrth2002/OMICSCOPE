@@ -14,8 +14,8 @@
     "num_epochs": [
         40
     ],
-    "task": "subtype_classification",   
-    "multi_dataset": ["kirp", "kirc"],
+    "task": "survival",   
+
     "top_k_patches": 20,
     "early_stopping": true,
     "hipt_splits": true,
@@ -36,9 +36,9 @@
         "lstm": true,
         "add_transcriptomics": true,
         "transcriptomics_type": "highest-magnification",
-        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/center_spots_stnet_kidney_highest_mag/epoch=9-step=1380.ckpt",
+        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/stnet_kidney_highest_mag/epoch=21-step=3014.ckpt",
         "transcriptomics_leaf_frac": 0.2,
-        "transcriptomics_combine_method": "gated_enrichment"
+        "transcriptomics_combine_method": "residual_enrichment"
     },
     "root_name": "kirp_paths"
 }

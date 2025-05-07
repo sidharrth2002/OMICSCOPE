@@ -202,8 +202,8 @@ def plot_all_gene_expression_overlay(
 
             y_coords = [to_pix_space(depth, loc[0], 0)[0] for loc in slide.locs]
 
-            if y_coords:
-                ax.set_ylim(max(y_coords) + pad + P, min(y_coords) - pad)
+            # if y_coords:
+            #     ax.set_ylim(max(y_coords) + pad + P, min(y_coords) - pad)
 
             if out_path is not None:
                 safe_gene_name = "".join(c if c.isalnum() else "_" for c in gene_name)
@@ -584,6 +584,16 @@ if __name__ == "__main__":
     image_encoder, dimension, transform = from_name("UNI")
     image_encoder.to(device)
 
+    # KRT5: A top diagnostic biomarker for squamous cell carcinoma (LUSC) with AUC >0.97 in LUAD/LUSC differentiation.
+
+    # S100A2: Linked to unfavorable prognosis in LUAD and elevated in LUSC.
+
+    # TRIM29: Associated with tumor progression and poor prognosis in LUAD.
+
+    # MUC1: Overexpressed in LUAD and linked to metastasis.
+
+    # QSOX1: Shows prognostic value in LUAD, with higher expression correlating with better outcomes
+
     heatmap_camelyon17_transcriptomics(
         config,
         model,
@@ -593,7 +603,21 @@ if __name__ == "__main__":
         args.annotation_path,
         args.out,
         full_gene_list=load_gene_list(args.st_model_config),
-        chosen_genes=["ENG", "A2M", "SOD1", "TCFBR2"],
-        transcriptomics_visualisation_depth=4,
+        # chosen_genes=["ENG", "A2M", "SOD1", "TCFBR2"],
+        chosen_genes=[
+            "ALDH1A1",
+            "AGR2",
+            "ANXA2",
+            "AQP1",
+            "CD44",
+            "CLPTM1L",
+            "DDR1"
+            # "KRT5",
+            # "S100A2",
+            # "TRIM29",
+            # "MUC1",
+            # "QSOX1",
+        ],
+        transcriptomics_visualisation_depth=3,
         transcriptomics_model_path="",
     )

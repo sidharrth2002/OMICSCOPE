@@ -14,8 +14,8 @@
     "num_epochs": [
         40
     ],
-    "task": "subtype_classification",   
-    "multi_dataset": ["kirp", "kirc"],
+    "task": "survival",   
+
     "top_k_patches": 20,
     "early_stopping": true,
     "hipt_splits": true,

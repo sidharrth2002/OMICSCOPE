@@ -10,7 +10,7 @@ import config as cfg
 import utils
 from model.transcriptomics_engine import get_num_transcriptomics_features
 import torch.nn.functional as F
-
+import wandb
 
 class CombineTranscriptomicsPatchCtx(nn.Module):
     def __init__(self, feat_1_dim, feat_2_dim, hdim, dropout_p=0.1):
@@ -73,6 +73,7 @@ class GatedTranscriptomicsFusion(nn.Module):
             nn.Linear(hidden_dim, 1),
             nn.Sigmoid(),
         )
+        self.norm = nn.LayerNorm(feat1_dim + hidden_dim + feat2_dim)
 
     def forward(self, feat_1, feat_2):
         # feat_1: [B,N,D], feat_2: [B,N,F]
@@ -80,11 +81,20 @@ class GatedTranscriptomicsFusion(nn.Module):
         valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()  # [B,N,1]
 
         # 2) compute gate normally, then zero it where invalid
-        g = self.gate_mlp(torch.cat([feat_1, feat_2], dim=-1))        # [B,N,1]
+        # TODO: return back to normal if this becomes a problem
+        g = self.gate_mlp(self.norm(torch.cat([feat_1, feat_2], dim=-1)))  # [B,N,1]
+        # g = self.gate_mlp(torch.cat([feat_1, feat_2], dim=-1))        # [B,N,1]
+        
+        # TODO: put this back
         g = g * valid                                                 # force g=0 for no-data
 
         # 3) enrichment
         enriched = self.enricher(feat_1, feat_2)                      # [B,N,D]
+
+        wandb.log({
+            "gated_enrichment": g.mean(),
+            "g_hist": wandb.Histogram(g.detach().cpu().numpy())
+        })
 
         # 4) fuse
         return g * enriched + (1.0 - g) * feat_1                      # [B,N,D]

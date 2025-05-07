@@ -261,7 +261,7 @@ def inference(model, depth, power, batch, importance_penalty, task: str):
 
 # todo; should probably just move somewhere else to prevent circular imports
 def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: str, use_mixed_precision: bool = False,
-                      random_rec_baseline: bool = False, magnification_factor: int = 2, transcriptomics_type: str = "none", transcriptomics_model_path: str = None):
+                      random_rec_baseline: bool = False, magnification_factor: int = 2, transcriptomics_type: str = "none", transcriptomics_model_path: str = None, model_dir: str = None):
     from data_utils import patch_batch  # circular imports...
     from data_utils.slide import PreprocessedSlide
     from data_utils.dataset import collate_fn
@@ -328,6 +328,11 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
             power *= 2
 
     logits = out["logits"].float()
+    
+    # pickle dump the out object in model_dir
+    if model_dir is not None:
+        with open(os.path.join(model_dir, "test_output.pkl"), "wb") as f:
+            pickle.dump(out, f)
 
     if task == "survival":
         labels = batch0["survival_bin"].to(device)
@@ -336,6 +341,14 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
         hazards = torch.sigmoid(logits)
 
         loss_nll = nll_loss(hazards, labels, censors)
+
+        if model_dir is not None:
+            with open(os.path.join(model_dir, "test_gt_hazards.pkl"), "wb") as f:
+                pickle.dump({
+                    "hazards": hazards,
+                    "labels": labels,
+                    "censors": censors,   
+                }, f)
 
         return hazards, loss_nll
 
