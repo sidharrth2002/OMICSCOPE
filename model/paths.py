@@ -16,8 +16,8 @@ class CombineTranscriptomicsPatchCtx(nn.Module):
     def __init__(self, feat_1_dim, feat_2_dim, hdim, dropout_p=0.1):
         super(CombineTranscriptomicsPatchCtx, self).__init__()
         # Define input and output dimensions
-        input_dim = feat_1_dim + hdim + feat_2_dim
-        output_dim = feat_1_dim + hdim
+        input_dim = feat_1_dim + feat_2_dim
+        output_dim = feat_1_dim
 
         # First transformation with layer normalization and dropout
         self.fc1 = nn.Linear(input_dim, output_dim)
@@ -68,16 +68,18 @@ class GatedTranscriptomicsFusion(nn.Module):
             dropout_p=dropout_p
         )
         self.gate_mlp = nn.Sequential(
-            nn.Linear(feat1_dim + hidden_dim + feat2_dim, hidden_dim),
+            nn.Linear(feat1_dim + feat2_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
             nn.Sigmoid(),
         )
-        self.norm = nn.LayerNorm(feat1_dim + hidden_dim + feat2_dim)
+        self.norm = nn.LayerNorm(feat1_dim + feat2_dim)
 
     def forward(self, feat_1, feat_2):
         # feat_1: [B,N,D], feat_2: [B,N,F]
         # 1) mask: which patches actually have transcriptomics
+        print(f"In GatedTranscriptomicsFusion")
+        print(f"feat_1 shape: {feat_1.shape}, feat_2 shape: {feat_2.shape}")
         valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()  # [B,N,1]
 
         # 2) compute gate normally, then zero it where invalid
@@ -204,11 +206,17 @@ class PATHSProcessor(nn.Module, Processor):
                 # feat1_dim = (self.dim + self.hdim) if config.lstm else self.dim
                 # feat2_dim = get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path)
                 self.combine_transcriptomics_patch_ctx = GatedTranscriptomicsFusion(
-                    feat1_dim=self.dim,
+                    feat1_dim=self.dim + self.hdim,
                     feat2_dim=get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path),
                     hidden_dim=self.hdim,
                     dropout_p=0.2
                 )
+                # self.enrich_aggregator = GatedTranscriptomicsFusion(
+                #     feat1_dim=self.dim,
+                #     feat2_dim=get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path),
+                #     hidden_dim=self.hdim,
+                #     dropout_p=0.2
+                # )
             else:
                 raise ValueError(
                     f"Unknown transcriptomics combine method: {config.transcriptomics_combine_method}"
@@ -331,6 +339,16 @@ class PATHSProcessor(nn.Module, Processor):
 
         # Positional encoding
         xs = patch_features
+        
+        # if self.config.add_transcriptomics and (transcriptomics is not None):
+        #     # TODO: remove this later if doesn't help
+        #     print(f"patch_features shape: {patch_features.shape}, transcriptomics shape: {transcriptomics.shape}")
+        #     print(f"self.dim: {self.dim}, self.hdim: {self.hdim}")
+        #     xs = self.enrich_aggregator(
+        #         feat_1=patch_features,
+        #         feat_2=transcriptomics
+        #     )
+        
         patch_locs = data.locs // self.config.patch_size  # pixel coords -> patch coords
         if self.config.pos_encoding_mode == "1d":
             xs = self.global_agg.pos_encode_1d(xs)

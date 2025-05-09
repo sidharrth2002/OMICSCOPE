@@ -125,6 +125,8 @@ class Config:
     seed: int = 0
     weight_decay: float = 1e-2
     early_stopping: bool = False
+
+    # TODO: set back to 10
     early_stopping_patience: int = 10
 
     root_name: str = ""  # for tracking multiple folds
