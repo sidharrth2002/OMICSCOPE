@@ -44,19 +44,15 @@ class CrossAttentionFusion(nn.Module):
 
         B, N, D = patch_feats.shape
 
-        # Handle global transcriptomics vector by repeating it for each patch
         if transcriptomics_feats.dim() == 2:
-            transcriptomics_feats = transcriptomics_feats.unsqueeze(1).expand(-1, N, -1)  # [B, N, F]
+            transcriptomics_feats = transcriptomics_feats.unsqueeze(1).expand(-1, N, -1)
 
-        # Project to Q, K, V
-        Q = self.query_proj(patch_feats)                 # [B, N, H]
-        K = self.key_proj(transcriptomics_feats)         # [B, N, H]
-        V = self.value_proj(transcriptomics_feats)       # [B, N, H]
+        Q = self.query_proj(patch_feats)
+        K = self.key_proj(transcriptomics_feats)
+        V = self.value_proj(transcriptomics_feats)
 
-        # Apply attention
         attn_output, attn_weights = self.cross_attn(Q, K, V)  # [B, N, H]
 
-        # Residual connection + projection back to patch_dim
         enriched = self.out_proj(attn_output)            # [B, N, D]
         enriched = self.ln(patch_feats + enriched)
 
@@ -69,17 +65,14 @@ class CombineTranscriptomicsPatchCtx(nn.Module):
         input_dim = feat_1_dim + feat_2_dim
         output_dim = feat_1_dim
 
-        # First transformation with layer normalization and dropout
         self.fc1 = nn.Linear(input_dim, output_dim)
         self.ln1 = nn.LayerNorm(output_dim)
         self.dropout1 = nn.Dropout(p=dropout_p)
 
-        # Second transformation with layer normalization and dropout
         self.fc2 = nn.Linear(output_dim, output_dim)
         self.ln2 = nn.LayerNorm(output_dim)
         self.dropout2 = nn.Dropout(p=dropout_p)
 
-        # Residual connection: if input dimension is not equal to output dimension, project it.
         self.residual_proj = (
             nn.Linear(input_dim, output_dim)
             if input_dim != output_dim
@@ -93,18 +86,15 @@ class CombineTranscriptomicsPatchCtx(nn.Module):
         # x shape: [batch_size, input_dim]
         residual = self.residual_proj(x)
 
-        # First layer transformation
         out = self.fc1(x)
         out = self.ln1(out)
         out = F.relu(out)
         out = self.dropout1(out)
 
-        # Second layer transformation
         out = self.fc2(out)
         out = self.ln2(out)
         out = self.dropout2(out)
 
-        # Residual addition with activation
         out = F.relu(out + residual)
         return out
 
@@ -136,22 +126,22 @@ class GatedTranscriptomicsFusion(nn.Module):
         # if g == 0:
         #     return feat_1
         
-        valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()  # [B,N,1]
+        valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()
 
         # 2) compute gate normally, then zero it where invalid
         # TODO: return back to normal if this becomes a problem
-        g = self.gate_mlp(self.norm(torch.cat([feat_1, feat_2], dim=-1)))  # [B,N,1]
-        # g = self.gate_mlp(torch.cat([feat_1, feat_2], dim=-1))        # [B,N,1]
+        g = self.gate_mlp(self.norm(torch.cat([feat_1, feat_2], dim=-1)))
+        # g = self.gate_mlp(torch.cat([feat_1, feat_2], dim=-1))
         
         # set g to 1 of shape [B, N, 1]
         # g = torch.ones(feat_1.shape[0], feat_1.shape[1], 1).to(feat_1.device)
         # print(g)
         
         # TODO: put this back
-        g = g * valid                                                 # force g=0 for no-data
+        g = g * valid
 
         # 3) enrichment
-        enriched = self.enricher(feat_1, feat_2)                      # [B,N,D]
+        enriched = self.enricher(feat_1, feat_2)
 
         wandb.log({
             "gated_enrichment": g.mean(),
@@ -159,7 +149,7 @@ class GatedTranscriptomicsFusion(nn.Module):
         })
 
         # 4) fuse
-        return g * enriched + (1.0 - g) * feat_1                      # [B,N,D]
+        return g * enriched + (1.0 - g) * feat_1
 
 class ResidualTranscriptomicsFusion(nn.Module):
     def __init__(self, feat1_dim, feat2_dim, hidden_dim, dropout_p=0.1):
@@ -178,14 +168,14 @@ class ResidualTranscriptomicsFusion(nn.Module):
 
     def forward(self, feat_1, feat_2):
         # feat_1: [B, N, D], feat_2: [B, N, F]
-        fused_input = torch.cat([feat_1, feat_2], dim=-1)                 # [B, N, D+F]
-        delta = self.proj(fused_input)                                   # [B, N, D]
+        fused_input = torch.cat([feat_1, feat_2], dim=-1)
+        delta = self.proj(fused_input)
 
         # Zero out delta where transcriptomics is all zeros
-        valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()    # [B, N, 1]
-        delta = delta * valid                                            # suppress delta
+        valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()
+        delta = delta * valid
 
-        return feat_1 + delta                                            # residual fusion
+        return feat_1 + delta
 
 class AttentionWeightedSum(nn.Module):
     def __init__(self, feat_1_dim, feat_2_dim):
