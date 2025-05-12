@@ -81,9 +81,13 @@ def train_loop(
 
     scaler = GradScaler()
 
+    # TODO: put back
     # For early stopping on val loss
+    # early_stopping = EarlyStopping(
+    #     patience=config.early_stopping_patience, mode="min", verbose=True
+    # )
     early_stopping = EarlyStopping(
-        patience=config.early_stopping_patience, mode="min", verbose=True
+        patience=config.early_stopping_patience, mode="max", verbose=True
     )
     if config.early_stopping:
         assert (
@@ -158,8 +162,10 @@ def train_loop(
                 wandb.log(log_dict)
                 val_eval.reset()
 
-                # val_score = log_dict["val_c-index"] if config.task == "survival" else log_dict["val_AUC"]
-                val_score = log_dict["val_loss"]
+                # TODO: put back
+                # print("dtype of log_dict[val_loss]", type(log_dict["val_loss"]))
+                val_score = log_dict["val_c-index"].item() if config.task == "survival" else log_dict["val_AUC"]
+                # val_score = log_dict["val_loss"]
                 if config.early_stopping and early_stopping.step(val_score, model):
                     print(f"Early stopping at epoch {e+1}")
                     model = early_stopping.load_best_weights(model)

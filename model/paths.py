@@ -1,3 +1,4 @@
+import os
 import time
 import torch
 from torch import nn
@@ -11,6 +12,55 @@ import utils
 from model.transcriptomics_engine import get_num_transcriptomics_features
 import torch.nn.functional as F
 import wandb
+
+import torch
+import torch.nn as nn
+
+class CrossAttentionFusion(nn.Module):
+    def __init__(self, patch_dim, transcriptomics_dim, hidden_dim, n_heads=4, dropout=0.1):
+        super().__init__()
+
+        # Project patch features to Q
+        self.query_proj = nn.Linear(patch_dim, hidden_dim)
+        
+        # Project transcriptomics features to K and V
+        self.key_proj = nn.Linear(transcriptomics_dim, hidden_dim)
+        self.value_proj = nn.Linear(transcriptomics_dim, hidden_dim)
+
+        # Multihead Attention
+        self.cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=n_heads, dropout=dropout, batch_first=True)
+
+        # Output projection
+        self.out_proj = nn.Linear(hidden_dim, patch_dim)
+
+        # Optional layer norm
+        self.ln = nn.LayerNorm(patch_dim)
+
+    def forward(self, patch_feats, transcriptomics_feats):
+        """
+        patch_feats: Tensor of shape [B, N, D] (B=batch, N=patches, D=patch_dim)
+        transcriptomics_feats: Tensor of shape [B, N, F] or [B, F] (if global)
+        """
+
+        B, N, D = patch_feats.shape
+
+        # Handle global transcriptomics vector by repeating it for each patch
+        if transcriptomics_feats.dim() == 2:
+            transcriptomics_feats = transcriptomics_feats.unsqueeze(1).expand(-1, N, -1)  # [B, N, F]
+
+        # Project to Q, K, V
+        Q = self.query_proj(patch_feats)                 # [B, N, H]
+        K = self.key_proj(transcriptomics_feats)         # [B, N, H]
+        V = self.value_proj(transcriptomics_feats)       # [B, N, H]
+
+        # Apply attention
+        attn_output, attn_weights = self.cross_attn(Q, K, V)  # [B, N, H]
+
+        # Residual connection + projection back to patch_dim
+        enriched = self.out_proj(attn_output)            # [B, N, D]
+        enriched = self.ln(patch_feats + enriched)
+
+        return enriched
 
 class CombineTranscriptomicsPatchCtx(nn.Module):
     def __init__(self, feat_1_dim, feat_2_dim, hdim, dropout_p=0.1):
@@ -39,7 +89,7 @@ class CombineTranscriptomicsPatchCtx(nn.Module):
     def forward(self, feat_1, feat_2):
         x = torch.cat((feat_1, feat_2), dim=-1)
         # x = torch.cat((feat_1, feat_2.clone().detach()), dim=-1)
-        print(f"feat_1 shape: {feat_1.shape}, feat_2 shape: {feat_2.shape}, x shape: {x.shape}")
+        # print(f"feat_1 shape: {feat_1.shape}, feat_2 shape: {feat_2.shape}, x shape: {x.shape}")
         # x shape: [batch_size, input_dim]
         residual = self.residual_proj(x)
 
@@ -80,12 +130,22 @@ class GatedTranscriptomicsFusion(nn.Module):
         # 1) mask: which patches actually have transcriptomics
         print(f"In GatedTranscriptomicsFusion")
         print(f"feat_1 shape: {feat_1.shape}, feat_2 shape: {feat_2.shape}")
+        
+        # TODO: WARNING - VERY VERY IMPORTANT TO REMOVE IT
+        # g = 0
+        # if g == 0:
+        #     return feat_1
+        
         valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()  # [B,N,1]
 
         # 2) compute gate normally, then zero it where invalid
         # TODO: return back to normal if this becomes a problem
         g = self.gate_mlp(self.norm(torch.cat([feat_1, feat_2], dim=-1)))  # [B,N,1]
         # g = self.gate_mlp(torch.cat([feat_1, feat_2], dim=-1))        # [B,N,1]
+        
+        # set g to 1 of shape [B, N, 1]
+        # g = torch.ones(feat_1.shape[0], feat_1.shape[1], 1).to(feat_1.device)
+        # print(g)
         
         # TODO: put this back
         g = g * valid                                                 # force g=0 for no-data
@@ -100,6 +160,32 @@ class GatedTranscriptomicsFusion(nn.Module):
 
         # 4) fuse
         return g * enriched + (1.0 - g) * feat_1                      # [B,N,D]
+
+class ResidualTranscriptomicsFusion(nn.Module):
+    def __init__(self, feat1_dim, feat2_dim, hidden_dim, dropout_p=0.1):
+        super().__init__()
+        input_dim = feat1_dim + feat2_dim
+        output_dim = feat1_dim
+
+        self.proj = nn.Sequential(
+            nn.LayerNorm(input_dim),
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_p),
+            nn.Linear(hidden_dim, output_dim),
+            nn.Dropout(dropout_p),
+        )
+
+    def forward(self, feat_1, feat_2):
+        # feat_1: [B, N, D], feat_2: [B, N, F]
+        fused_input = torch.cat([feat_1, feat_2], dim=-1)                 # [B, N, D+F]
+        delta = self.proj(fused_input)                                   # [B, N, D]
+
+        # Zero out delta where transcriptomics is all zeros
+        valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()    # [B, N, 1]
+        delta = delta * valid                                            # suppress delta
+
+        return feat_1 + delta                                            # residual fusion
 
 class AttentionWeightedSum(nn.Module):
     def __init__(self, feat_1_dim, feat_2_dim):
@@ -153,11 +239,22 @@ class PATHSProcessor(nn.Module, Processor):
         #         nn.Linear(config.importance_mlp_hidden_dim, 1),
         #     )
         # else:
-        self.importance_mlp = nn.Sequential(
-            nn.Linear(self.dim, config.importance_mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(config.importance_mlp_hidden_dim, 1),
-        )
+        
+        if self.config.add_transcriptomics:
+            self.importance_mlp = nn.Sequential(
+                nn.Linear(self.dim + get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path), config.importance_mlp_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(config.importance_mlp_hidden_dim, 1),
+            )
+        else:
+            self.importance_mlp = nn.Sequential(
+                nn.Linear(self.dim, config.importance_mlp_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(config.importance_mlp_hidden_dim, 1),
+            )
+        
+        # if self.config.add_transcriptomics:
+        #     self.fuse_proj = (nn.Linear(self.dim + get_num_transcriptomics_features(config.transcriptomics_model_path), self.dim, bias=False))
 
         if config.lstm:
             self.hdim = config.hierarchical_ctx_mlp_hidden_dim
@@ -170,14 +267,24 @@ class PATHSProcessor(nn.Module, Processor):
             )
 
         # Global aggregator
-        self.global_agg = TransformerAggregator(
-            input_dim=self.dim,
-            model_dim=config.trans_dim,
-            output_dim=self.dim,
-            nhead=config.trans_heads,
-            layers=config.trans_layers,
-            dropout=config.dropout,
-        )
+        if self.config.add_transcriptomics:
+            self.global_agg = TransformerAggregator(
+                input_dim=self.dim + get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path),
+                model_dim=config.trans_dim,
+                output_dim=self.dim,
+                nhead=config.trans_heads,
+                layers=config.trans_layers,
+                dropout=config.dropout,
+            )                
+        else:    
+            self.global_agg = TransformerAggregator(
+                input_dim=self.dim,
+                model_dim=config.trans_dim,
+                output_dim=self.dim,
+                nhead=config.trans_heads,
+                layers=config.trans_layers,
+                dropout=config.dropout,
+            )
 
         # self.transcriptomics_projector = nn.Linear(get_num_transcriptomics_features(), self.dim + self.hdim)
 
@@ -196,7 +303,7 @@ class PATHSProcessor(nn.Module, Processor):
                     dropout_p=0.2
                 )
             elif config.transcriptomics_combine_method == "attention_weighted_sum":
-                print(f"feature 1 dim: {self.dim}, feature 2 dim: {get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path)}, hdim: {self.hdim}")
+                # print(f"feature 1 dim: {self.dim}, feature 2 dim: {get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path)}, hdim: {self.hdim}")
                 self.combine_transcriptomics_patch_ctx = AttentionWeightedSum(
                     feat_1_dim=self.dim, 
                     feat_2_dim=get_num_transcriptomics_features(transcriptomics_model_path=config.transcriptomics_model_path), 
@@ -217,6 +324,22 @@ class PATHSProcessor(nn.Module, Processor):
                 #     hidden_dim=self.hdim,
                 #     dropout_p=0.2
                 # )
+            elif config.transcriptomics_combine_method == "residual_fusion":
+                self.combine_transcriptomics_patch_ctx = ResidualTranscriptomicsFusion(
+                    feat1_dim=self.dim + self.hdim, 
+                    feat2_dim=get_num_transcriptomics_features(config.transcriptomics_model_path),
+                    hidden_dim=self.hdim
+                )
+            elif config.transcriptomics_combine_method == "cross_attention":
+                self.combine_transcriptomics_patch_ctx = CrossAttentionFusion(
+                    patch_dim=self.dim + self.hdim if config.lstm else self.dim,
+                    transcriptomics_dim=get_num_transcriptomics_features(config.transcriptomics_model_path),
+                    hidden_dim=self.hdim,
+                    n_heads=4,
+                    dropout=0.2
+                )
+            elif config.transcriptomics_combine_method == "context-concat":
+                pass
             else:
                 raise ValueError(
                     f"Unknown transcriptomics combine method: {config.transcriptomics_combine_method}"
@@ -229,7 +352,20 @@ class PATHSProcessor(nn.Module, Processor):
         """
         patch_features = data.fts
         transcriptomics = data.transcriptomics
+        # print(f"patch_features shape before projection: {patch_features.shape}")
         patch_features = self.proj_in(patch_features)
+
+        # print(f"patch_features shape: {patch_features.shape}")
+        # print(f"transcriptomics shape: {transcriptomics.shape}")
+
+        if self.config.add_transcriptomics and (transcriptomics is not None):
+            # concatenate transcriptomics features to patch features
+            patch_features = torch.cat(
+                (patch_features, transcriptomics), dim=-1
+            )
+            # patch_features = self.fuse_proj(patch_features)
+        
+        # print(f"patch_features shape after concatenating transcriptomics: {patch_features.shape}")
 
         ################# Apply LSTM
         if self.config.lstm:
@@ -237,9 +373,14 @@ class PATHSProcessor(nn.Module, Processor):
 
             # Initialise LSTM state at top of hierarchy
             if self.depth == 0:
-                hs = torch.zeros(
-                    (data.batch_size, data.max_patches, self.dim), device=data.device
-                )
+                if self.config.add_transcriptomics:
+                    hs = torch.zeros(
+                        data.batch_size, data.max_patches, self.dim + transcriptomics.shape[-1], device=data.device
+                    )
+                else:
+                    hs = torch.zeros(
+                        (data.batch_size, data.max_patches, self.dim), device=data.device
+                    )
                 cs = torch.zeros(
                     (data.batch_size, data.max_patches, self.hdim), device=data.device
                 )
@@ -252,8 +393,12 @@ class PATHSProcessor(nn.Module, Processor):
                     or lstm_state.shape[-1]
                     == self.dim + self.hdim + transcriptomics.shape[-1]
                 )
-                hs, cs = lstm_state[..., : self.dim], lstm_state[..., self.dim :]
+                if self.config.add_transcriptomics:
+                    hs, cs = lstm_state[..., : self.dim + transcriptomics.shape[-1]], lstm_state[..., self.dim + transcriptomics.shape[-1] :]
+                else:
+                    hs, cs = lstm_state[..., : self.dim], lstm_state[..., self.dim :]
 
+            # print(f"hs shape: {hs.shape}, cs shape: {cs.shape}")
             hs, cs = lstm(patch_features, hs, cs)
 
             patch_features = patch_features + hs  # produce Y from X
@@ -291,44 +436,48 @@ class PATHSProcessor(nn.Module, Processor):
             if self.depth > 0 and self.config.hierarchical_ctx:
                 assert len(data.ctx_patch.shape) == 4
                 hctx = data.ctx_patch[:, :, -1]  # B x MaxIms x D
+                
+                # hctx = hctx + transcriptomics
+                
                 hctx = utils.apply_to_non_padded(
                     self.hctx_mlp, hctx, data.valid_inds, self.dim
                 )
 
                 patch_features = patch_features + hctx
+                # patch_features
 
             patch_ctx = patch_features
 
         # append transcriptomics features to patch context
-        if self.config.add_transcriptomics and (transcriptomics is not None):
-            # generate a random tensor of the same shape as the transcriptomics tensor
-            # random_tensor = torch.rand(transcriptomics.shape).to(transcriptomics.device)
-            # patch_ctx = self.combine_transcriptomics_patch_ctx(
-            #     torch.cat((patch_ctx, random_tensor), dim=-1)
-            # )
+        # if self.config.add_transcriptomics and (transcriptomics is not None):
+        #     # generate a random tensor of the same shape as the transcriptomics tensor
+        #     # random_tensor = torch.rand(transcriptomics.shape).to(transcriptomics.device)
+        #     # patch_ctx = self.combine_transcriptomics_patch_ctx(
+        #     #     torch.cat((patch_ctx, random_tensor), dim=-1)
+        #     # )
 
-            # print("adding transcriptomics features to patch context")
-            # TODO: check if this is correct
-            if self.config.transcriptomics_combine_method == "residual_enrichment":
-                valid_mask = transcriptomics.abs().sum(dim=-1, keepdim=True) != 0
-                # print("mask ", valid_mask)
-                enriched_ctx = self.combine_transcriptomics_patch_ctx(
-                    feat_1=patch_ctx,
-                    feat_2=transcriptomics,
-                )
-                # enriched_ctx = self.combine_transcriptomics_patch_ctx(
-                #     torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
-                # )
-                patch_ctx = torch.where(valid_mask, enriched_ctx, patch_ctx)
-                # print how many patches are not zero
-                print(
-                    f"Number of patches with non-zero transcriptomics features: {valid_mask.sum()} out of {valid_mask.numel()}"
-                )
-            elif self.config.transcriptomics_combine_method == "gated_enrichment":
-                patch_ctx = self.combine_transcriptomics_patch_ctx(
-                    feat_1=patch_ctx,        # [B, N, D]
-                    feat_2=transcriptomics   # [B, N, F]
-                )
+        #     # print("adding transcriptomics features to patch context")
+        #     # TODO: check if this is correct
+        #     if self.config.transcriptomics_combine_method == "residual_enrichment":
+        #         valid_mask = transcriptomics.abs().sum(dim=-1, keepdim=True) != 0
+        #         # print("mask ", valid_mask)
+        #         enriched_ctx = self.combine_transcriptomics_patch_ctx(
+        #             feat_1=patch_ctx,
+        #             feat_2=transcriptomics,
+        #         )
+        #         # enriched_ctx = self.combine_transcriptomics_patch_ctx(
+        #         #     torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
+        #         # )
+        #         patch_ctx = torch.where(valid_mask, enriched_ctx, patch_ctx)
+        #         # print how many patches are not zero
+        #         print(
+        #             f"Number of patches with non-zero transcriptomics features: {valid_mask.sum()} out of {valid_mask.numel()}"
+        #         )
+        #     elif self.config.transcriptomics_combine_method == "gated_enrichment":
+        #         patch_ctx = self.combine_transcriptomics_patch_ctx(
+        #             feat_1=patch_ctx,        # [B, N, D]
+        #             feat_2=transcriptomics   # [B, N, F]
+        #         )
 
         ################# Global aggregation
         d = self.config.trans_dim
@@ -381,7 +530,10 @@ class PATHSProcessor(nn.Module, Processor):
 
     def ctx_dim(self) -> Tuple[int, int]:
         if self.config.lstm:
-            return self.slide_ctx_dim, self.dim + self.hdim
+            if self.config.add_transcriptomics:
+                return self.slide_ctx_dim, self.dim + self.hdim + get_num_transcriptomics_features(transcriptomics_model_path=self.config.transcriptomics_model_path)
+            else:
+                return self.slide_ctx_dim, self.dim + self.hdim
         return self.slide_ctx_dim, self.dim
 
 

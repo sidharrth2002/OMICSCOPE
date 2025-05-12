@@ -531,6 +531,8 @@ class PreprocessedSlide:
         #     ctx_patch = torch.cat((ctx_patch, torch.zeros((ctx_patch.shape[0], ctx_patch.shape[1], new_ctx_patch.shape[-1] - ctx_patch.shape[-1]), device=ctx_patch.device)), dim=-1)
         #     print("New ctx_patch shape: ", ctx_patch.shape)
         if new_ctx_patch is not None:
+            # print("ctx_patch shape: ", ctx_patch.shape)
+            # print("new_ctx_patch shape[:, None]: ", new_ctx_patch[:, None].shape)
             ctx_patch = torch.cat((ctx_patch, new_ctx_patch[:, None]), dim=1)  # N x K x D -> N x (K+1) x D
 
         if keep_patches != -1:

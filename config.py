@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 from os import path
 import json
-from torch.optim.lr_scheduler import ExponentialLR
+from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR
 from typing import List
 
 from data_utils.dataset import load_splits
@@ -205,7 +205,13 @@ class Config:
         return load_splits(props, seed, ctx_dim, self, **kwargs)
 
     def get_lr_scheduler(self, optimizer):
-        return ExponentialLR(optimizer, self.lr_decay_per_epoch)
+        # TODO: set back to exponentialLR
+        # return ExponentialLR(optimizer, self.lr_decay_per_epoch)
+        return CosineAnnealingLR(
+            optimizer,
+            T_max=self.num_epochs,
+            eta_min=0,
+        )
 
     def num_logits(self) -> int:
         if self.task == "survival":

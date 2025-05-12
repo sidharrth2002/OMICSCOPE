@@ -55,6 +55,7 @@ class LSTMCell(nn.Module):
         # Update output
         hs = self.out_select_gate(xhs) * self.mem_to_out(cs)
 
+        print(f"in LSTMCell: {xs.shape}, {hs.shape}, {cs.shape}")
         return hs, cs
 
 
@@ -93,7 +94,12 @@ class RecursiveModel(nn.Module):
             # num_transcriptomics_features = get_num_transcriptomics_features()
             dim = config_.patch_embed_dim if config_.model_dim is None else config_.model_dim
 
-            self.lstm = LSTMCell(dim, dim, config_.hierarchical_ctx_mlp_hidden_dim)
+            # self.lstm = LSTMCell(dim, dim, config_.hierarchical_ctx_mlp_hidden_dim)
+            if config_.add_transcriptomics:
+                self.lstm = LSTMCell(dim + get_num_transcriptomics_features(config_.transcriptomics_model_path), dim + get_num_transcriptomics_features(config_.transcriptomics_model_path), config_.hierarchical_ctx_mlp_hidden_dim)
+            else:
+                self.lstm = LSTMCell(dim, dim, config_.hierarchical_ctx_mlp_hidden_dim)
+
             self.use_lstm = True
         else:
             self.use_lstm = False

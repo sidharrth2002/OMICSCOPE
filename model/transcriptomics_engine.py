@@ -146,6 +146,10 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
         #     # TODO: adjust this if diffusion starts to crash
         #     batch_size = 1000
 
+        # save feats to a file
+        # torch.save(feats, "feats.pt")
+        # os._exit(0)
+
         loader = torch.utils.data.DataLoader(
             MiniPatchDataset(feats),
             batch_size=batch_size,
