@@ -286,6 +286,11 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
             importance = out["importance"]
             new_ctx_slide = out["ctx_slide"]
             new_ctx_patch = out["ctx_patch"]
+            
+            # log importance histogram to wandb
+            wandb.log({
+                f"importances/level_{i}": wandb.Histogram(importance.detach().cpu().numpy()),
+            })
 
         if random_rec_baseline:
             importance = torch.randn_like(importance)

@@ -1,5 +1,6 @@
 import os
 import time
+from matplotlib import pyplot as plt
 import torch
 from torch import nn
 from typing import Dict, Tuple
