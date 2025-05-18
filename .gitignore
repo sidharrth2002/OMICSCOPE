@@ -1,4 +1,5 @@
 run_paths.sh
+run_ablations.sh
 run_paths_ablations.sh
 inference_artifacts/**
 
@@ -15,6 +16,8 @@ models_old/**/*.pkl
 models_old/**/*.pt
 models_with_transcriptomics/**/*.pt
 models_with_transcriptomics/**/*.pkl
+visualisations/**
+visualisations_old/**
 
 backup/**
 

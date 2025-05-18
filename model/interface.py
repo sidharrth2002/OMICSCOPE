@@ -95,7 +95,7 @@ class RecursiveModel(nn.Module):
             dim = config_.patch_embed_dim if config_.model_dim is None else config_.model_dim
 
             # self.lstm = LSTMCell(dim, dim, config_.hierarchical_ctx_mlp_hidden_dim)
-            if config_.add_transcriptomics:
+            if config_.add_transcriptomics and config_.transcriptomics_combine_method == "context-concat":
                 self.lstm = LSTMCell(dim + get_num_transcriptomics_features(config_.transcriptomics_model_path), dim + get_num_transcriptomics_features(config_.transcriptomics_model_path), config_.hierarchical_ctx_mlp_hidden_dim)
             else:
                 self.lstm = LSTMCell(dim, dim, config_.hierarchical_ctx_mlp_hidden_dim)

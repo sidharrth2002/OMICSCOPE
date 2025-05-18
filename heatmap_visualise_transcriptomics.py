@@ -1,8 +1,10 @@
 import copy
 import json
 import os
+import tempfile
 from os.path import join
 import argparse
+import pandas as pd
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,6 +23,11 @@ from model.interface import RecursiveModel
 from model.image_encoder import from_name
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import yaml
+
+# dotenv
+from dotenv import load_dotenv
+
+load_dotenv("/home/sn666/dissertation/.env")
 
 
 def load_gene_list(st_model_config_file: str):
@@ -93,7 +100,8 @@ def plot_all_gene_expression_overlay(
     pad: int = 128,
     P: int = 256,
     # which level should we compute transcriptomics at
-    visualisation_depth: int = 5
+    visualisation_depth: int = 5,
+    slide_path: str = None,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -104,13 +112,13 @@ def plot_all_gene_expression_overlay(
     # top level side
     slide = copy.deepcopy(slide_depths[0])
     # let's print out the locs
-    print("Top level slide locs:", slide.locs)
+    # print("Top level slide locs:", slide.locs)
 
     # now let's recursively iterate to the bottom level
     # without any importance filtering
 
     for depth in range(visualisation_depth):
-        print(f"Recursing to depth {depth + 1} / {visualisation_depth}...")
+        # print(f"Recursing to depth {depth + 1} / {visualisation_depth}...")
 
         slide = slide.simple_recurse(
             multiplier=config.magnification_factor,
@@ -118,47 +126,49 @@ def plot_all_gene_expression_overlay(
         slide.camelyon = True
         slide.load_patches(process_ctx=False)
 
-        print(f"Locs at depth {depth + 1} / {visualisation_depth}: {slide.locs.shape[0]}")
+        # print(f"Locs at depth {depth + 1} / {visualisation_depth}: {slide.locs.shape[0]}")
 
     transcriptomics_results = []
     patches = []
     with torch.no_grad():
         for patch_loc in slide.locs:
-            print(patch_loc)
+            # print(patch_loc)
             patch_data = slide.get_patch_data(patch_loc)
             patches.append(transform(patch_data))
 
     patches = [patch.unsqueeze(0).to(device) for patch in patches]
     patches = torch.cat(patches)
 
-    print(f"Shape of patches before encoder: {patches.shape}")
+    # print(f"Shape of patches before encoder: {patches.shape}")
     # infer in batches
     encoded_patches = []
     inference_batch_size = 4
-    for i in range(0, len(patches), inference_batch_size):
-        batch_patches = patches[i : i + inference_batch_size]
-        print(f"Shape of batch_patches: {batch_patches.shape}")
-        # run the encoder
-        batch_patches = image_encoder(batch_patches)
-        # write to a file
-        torch.save(
-            batch_patches,
-            os.path.join(
-                "/auto/archive/tcga/sn666/paths_inference_artifacts/",
-                tensor_fingerprint(patches[i : i + inference_batch_size]) + ".pt",
-            ),
-        )
-        del batch_patches
-        # encoded_patches.append(batch_patches)
-    # load all encoded patches
-    for i in range(0, len(patches), inference_batch_size):
-        batch_patches = torch.load(
-            os.path.join(
-                "/auto/archive/tcga/sn666/paths_inference_artifacts/",
-                tensor_fingerprint(patches[i : i + inference_batch_size]) + ".pt",
+    
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        for i in range(0, len(patches), inference_batch_size):
+            batch_patches = patches[i : i + inference_batch_size]
+            # print(f"Shape of batch_patches: {batch_patches.shape}")
+            # run the encoder
+            batch_patches = image_encoder(batch_patches)
+            # write to a file
+            torch.save(
+                batch_patches,
+                os.path.join(
+                    tmpdirname,
+                    tensor_fingerprint(patches[i : i + inference_batch_size]) + ".pt",
+                ),
             )
-        )
-        encoded_patches.append(batch_patches)
+            del batch_patches
+            # encoded_patches.append(batch_patches)
+        # load all encoded patches
+        for i in range(0, len(patches), inference_batch_size):
+            batch_patches = torch.load(
+                os.path.join(
+                    tmpdirname,
+                    tensor_fingerprint(patches[i : i + inference_batch_size]) + ".pt",
+                )
+            )
+            encoded_patches.append(batch_patches)
     # concatenate all encoded patches
     patches = torch.cat(encoded_patches)
 
@@ -208,12 +218,17 @@ def plot_all_gene_expression_overlay(
             if out_path is not None:
                 safe_gene_name = "".join(c if c.isalnum() else "_" for c in gene_name)
 
-                gene_path = f"{out_path}_{safe_gene_name}_expression.pdf"
+                # gene_path = f"{out_path}_{safe_gene_name}_expression.pdf"
+                gene_path = os.path.join(
+                    out_path,
+                    f"{os.path.split(slide_path)[-1]}_{safe_gene_name}_expression.pdf",
+                )
                 plt.savefig(gene_path, format="pdf", dpi=300, bbox_inches="tight")
-                print(f"Saved {gene_name} expression plot to {gene_path}")
+                # print(f"Saved {gene_name} expression plot to {gene_path}")
 
             plt.close(fig)
 
+    return transcriptomics_results
 
 def plot_selected_patches_gene_expression_overlay(
     config: Config,
@@ -230,8 +245,8 @@ def plot_selected_patches_gene_expression_overlay(
     """
     Plot the gene expression levels of only the selected patches
     at the absolute highest magnification level.
-    
-    This could be useful for visualising the true transcriptomic profiles 
+
+    This could be useful for visualising the true transcriptomic profiles
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -243,10 +258,10 @@ def plot_selected_patches_gene_expression_overlay(
     patches = []
     with torch.no_grad():
         for patch_loc in highest_mag_patches:
-            print(patch_loc)
+            # print(patch_loc)
             patch_data = highest_mag_slide.get_patch_data(patch_loc)
             patches.append(transform(patch_data))
-            print(f"Shape of added patch: {patches[-1].shape}")
+            # print(f"Shape of added patch: {patches[-1].shape}")
 
     patches = [patch.unsqueeze(0).to(device) for patch in patches]
     # patches is a list of tensors, each with shape (1, C, P, P)
@@ -255,9 +270,9 @@ def plot_selected_patches_gene_expression_overlay(
     patches = torch.cat(patches)
 
     # run the encoder
-    print(f"Shape of patches before encoder: {patches.shape}")
+    # print(f"Shape of patches before encoder: {patches.shape}")
     patches = image_encoder(patches)
-    print(f"Shape of patches after encoder: {patches.shape}")
+    # print(f"Shape of patches after encoder: {patches.shape}")
 
     transcriptomics_results = get_transcriptomics_data(
         patches, transcriptomics_model_path=transcriptomics_model_path
@@ -274,7 +289,7 @@ def plot_selected_patches_gene_expression_overlay(
         norm = plt.Normalize(vmin, vmax)
         cmap = plt.get_cmap("inferno")
 
-        print(highest_mag_patches)
+        # print(highest_mag_patches)
 
         # os._exit(0)
 
@@ -282,8 +297,8 @@ def plot_selected_patches_gene_expression_overlay(
             y_base, x_base = to_pix_space(depth, *patch_loc)
             patch_size = convert_pix(P, depth, 0)
 
-            print(f"Patch loc: {patch_loc}, y_base: {y_base}, x_base: {x_base}")
-            print(f"Patch size: {patch_size}")
+            # print(f"Patch loc: {patch_loc}, y_base: {y_base}, x_base: {x_base}")
+            # print(f"Patch size: {patch_size}")
 
             rect = Rectangle(
                 (x_base, y_base),
@@ -311,10 +326,84 @@ def plot_selected_patches_gene_expression_overlay(
 
             gene_path = f"{out_path}_{safe_gene_name}_expression.pdf"
             plt.savefig(gene_path, format="pdf", dpi=300, bbox_inches="tight")
-            print(f"Saved {gene_name} expression plot to {gene_path}")
+            # print(f"Saved {gene_name} expression plot to {gene_path}")
 
         plt.close(fig)
 
+def compute_attention_gene_overlap(
+    base_img: np.ndarray,
+    slide_depths: list,
+    transcriptomics_results: torch.Tensor,
+    importance_scores: list,
+    chosen_genes: list,
+    full_gene_list: list,
+    P: int,
+    threshold_quantile: float = 0.90,
+):
+    """
+    Compute overlap metrics (IoU, Pearson correlation, Cosine similarity)
+    between gene expression and model attention per level.
+
+    Returns:
+        A pandas DataFrame: rows = genes, columns = metrics per level.
+    """
+    from scipy.stats import pearsonr
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    h, w = base_img.shape[:2]
+    results = []
+
+    for gene_name in chosen_genes:
+        gene_idx = full_gene_list.index(gene_name)
+        row = {"Gene": gene_name}
+
+        for level, (slide, importance) in enumerate(zip(slide_depths, importance_scores)):
+            expr_values = transcriptomics_results[:, gene_idx].cpu().numpy()
+            attn_values = importance  # shape: (N,) at this level
+
+            # Normalize values
+            expr_norm = (expr_values - np.min(expr_values)) / (np.max(expr_values) - np.min(expr_values) + 1e-8)
+            attn_norm = (attn_values - np.min(attn_values)) / (np.max(attn_values) - np.min(attn_values) + 1e-8)
+
+            # Initialize heatmaps
+            expr_heatmap = np.zeros((h, w), dtype=float)
+            attn_heatmap = np.zeros((h, w), dtype=float)
+
+            for (y, x), e, a in zip(slide.locs, expr_norm, attn_norm):
+                y_pix, x_pix = to_pix_space(level, y, x)
+                patch_size = convert_pix(P, level, 0)
+
+                expr_heatmap[y_pix:y_pix+patch_size, x_pix:x_pix+patch_size] += e
+                attn_heatmap[y_pix:y_pix+patch_size, x_pix:x_pix+patch_size] += a
+
+            # Flatten for numerical comparison
+            expr_flat = expr_heatmap.flatten()
+            attn_flat = attn_heatmap.flatten()
+
+            # Pearson correlation
+            pearson_corr = np.corrcoef(expr_flat, attn_flat)[0, 1]
+
+            # Cosine similarity
+            cosine_sim = cosine_similarity(expr_flat.reshape(1, -1), attn_flat.reshape(1, -1))[0, 0]
+
+            # Binary IoU of top-quantile regions
+            expr_mask = expr_heatmap >= np.quantile(expr_heatmap, threshold_quantile)
+            attn_mask = attn_heatmap >= np.quantile(attn_heatmap, threshold_quantile)
+            intersection = np.logical_and(expr_mask, attn_mask).sum()
+            union = np.logical_or(expr_mask, attn_mask).sum()
+            
+            # iou = intersection / (union + 1e-8)
+            iou = np.sum(np.minimum(expr_heatmap, attn_heatmap)) / np.sum(np.maximum(expr_heatmap, attn_heatmap))
+            
+            # Store results
+            row[f"Level {level} - Pearson"] = round(pearson_corr, 4)
+            row[f"Level {level} - Cosine"] = round(cosine_sim, 4)
+            row[f"Level {level} - IoU@{threshold_quantile}"] = round(iou, 4)
+
+        results.append(row)
+
+    df = pd.DataFrame(results)
+    return df
 
 def heatmap_camelyon17_transcriptomics(
     config: Config,
@@ -403,7 +492,7 @@ def heatmap_camelyon17_transcriptomics(
     # get the base image for visualization
     bigimg = get_slide_rgb()
 
-    plot_all_gene_expression_overlay(
+    transcriptomics_results = plot_all_gene_expression_overlay(
         config=config,
         model=model,
         slide_depths=slide_depths,
@@ -416,7 +505,8 @@ def heatmap_camelyon17_transcriptomics(
         image_encoder=image_encoder,
         pad=128,
         P=config.model_config.patch_size,
-        visualisation_depth=transcriptomics_visualisation_depth
+        visualisation_depth=transcriptomics_visualisation_depth,
+        slide_path=slide_path,
     )
 
     H, W, C = bigimg.shape
@@ -521,11 +611,38 @@ def heatmap_camelyon17_transcriptomics(
     fig.subplots_adjust(right=0.9)
 
     if out_path is not None:
-        if not out_path.endswith(".pdf"):
-            out_path += ".pdf"
-        plt.savefig(out_path, format="pdf", dpi=200)
+        # if not out_path.endswith(".pdf"):
+        #     out_path += ".pdf"
+        diagram_out_path = os.path.join(
+            out_path, f"{os.path.split(slide_path)[-1]}_transcriptomics_{config.model_config.add_transcriptomics}_heatmap.pdf"
+        )
+        plt.savefig(diagram_out_path, format="pdf", dpi=200)
     plt.show()
+    
+    overlap_df = compute_attention_gene_overlap(
+        base_img=bigimg,
+        slide_depths=slide_depths,
+        transcriptomics_results=transcriptomics_results,
+        importance_scores=imps,
+        chosen_genes=chosen_genes,
+        full_gene_list=full_gene_list,
+        P=config.model_config.patch_size,
+    )
+    overlap_df.to_csv(
+        os.path.join(
+            out_path,
+            f"{os.path.split(slide_path)[-1]}_transcriptomics_{config.model_config.add_transcriptomics}_gene_attention_overlap.csv",
+        ),
+        index=False,
+    )
+    print("Overlap metrics saved to CSV.")
 
+    # import ace_tools as tools; tools.display_dataframe_to_user("Gene-Attention Overlap Metrics", overlap_df)
+
+def load_genes(gene_list_path: str):
+    with open(gene_list_path, "r") as f:
+        gene_list = [line.strip() for line in f.readlines()]
+    return gene_list
 
 if __name__ == "__main__":
     logger = logging.getLogger()
@@ -556,12 +673,26 @@ if __name__ == "__main__":
         help="Path to the transcriptomics model config file. This is used to load the gene list.",
     )
     parser.add_argument(
-        "-o",
-        "--out",
+        "-t",
+        "--transcriptomics-model-path",
         default=None,
         type=str,
-        help="Output a PDF of the visualisation to the given path.",
+        help="Path to the transcriptomics model checkpoint.",
     )
+    parser.add_argument(
+        "-g",
+        "--gene-list",
+        default=None,
+        type=str,
+        help="Path to the gene list file. This is used to load the gene list.",
+    )
+    # parser.add_argument(
+    #     "-o",
+    #     "--out",
+    #     default=None,
+    #     type=str,
+    #     help="Output a PDF of the visualisation to the given path.",
+    # )
     args = parser.parse_args()
 
     model_name = os.path.split(args.model_dir)[-1]
@@ -601,23 +732,10 @@ if __name__ == "__main__":
         transform,
         args.slide_path,
         args.annotation_path,
-        args.out,
+        out_path=f"/home/sn666/dissertation/benchmarking/PATHS/visualisations/",
         full_gene_list=load_gene_list(args.st_model_config),
         # chosen_genes=["ENG", "A2M", "SOD1", "TCFBR2"],
-        chosen_genes=[
-            "ALDH1A1",
-            "AGR2",
-            "ANXA2",
-            "AQP1",
-            "CD44",
-            "CLPTM1L",
-            "DDR1"
-            # "KRT5",
-            # "S100A2",
-            # "TRIM29",
-            # "MUC1",
-            # "QSOX1",
-        ],
+        chosen_genes=load_genes(args.gene_list),
         transcriptomics_visualisation_depth=3,
-        transcriptomics_model_path="",
+        transcriptomics_model_path=args.transcriptomics_model_path,
     )

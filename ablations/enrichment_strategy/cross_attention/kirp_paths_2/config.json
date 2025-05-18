@@ -1,7 +1,7 @@
 {
-    "wsi_dir": "/auto/archive/tcga/tcga/wsi/luad",
-    "preprocess_dir": "/auto/archive/tcga/tcga/wsi/luad_zzb20_uni",
-    "csv_path": "/auto/archive/tcga/tcga/omic/tcga_luad_all_clean.csv.zip",
+    "wsi_dir": "/auto/archive/tcga/tcga/wsi/kirp",
+    "preprocess_dir": "/auto/archive/tcga/tcga/wsi/kirp_zzb20_uni",
+    "csv_path": "/auto/archive/tcga/tcga/omic/tcga_kirp_all_clean.csv.zip",
     "batch_size": 32,
     
     "eval_epochs": 1,
@@ -14,7 +14,8 @@
     "num_epochs": [
         40
     ],
-    
+    "task": "survival",   
+
     "top_k_patches": 20,
     "early_stopping": true,
     "hipt_splits": true,
@@ -32,7 +33,12 @@
         "pos_encoding_mode": "2d",
         "importance_mlp_hidden_dim": 128,
         "hierarchical_ctx_mlp_hidden_dim": 256,
-        "lstm": true
+        "lstm": true,
+        "add_transcriptomics": true,
+        "transcriptomics_type": "highest-magnification",
+        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/stnet_pancancer_highest_mag/epoch=5-step=17874.ckpt",
+        "transcriptomics_leaf_frac": 0.5,
+        "transcriptomics_combine_method": "cross_attention"
     },
-    "root_name": "luad_paths"
+    "root_name": "kirp_paths"
 }

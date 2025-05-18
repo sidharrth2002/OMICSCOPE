@@ -16,7 +16,7 @@
     ],
     
     "top_k_patches": 20,
-    "early_stopping": false,
+    "early_stopping": true,
     "hipt_splits": true,
     "hipt_val_proportion": 0.1,
     "model_type": "PATHS",

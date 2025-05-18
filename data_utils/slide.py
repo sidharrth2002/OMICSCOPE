@@ -129,10 +129,10 @@ class RawSlide:
         ims = []
         for loc in self.load_locs:
             y, x = loc.tolist()
-            print(f"Loading patch at {loc.tolist()}")
-            print(f"load size: {self.load_size}")
-            print(f"resolution: {self.power}")
-            print(f"More to go: {len(self.load_locs) - len(ims)}")
+            # print(f"Loading patch at {loc.tolist()}")
+            # print(f"load size: {self.load_size}")
+            # print(f"resolution: {self.power}")
+            # print(f"More to go: {len(self.load_locs) - len(ims)}")
 
             im = wsi.read_rect(
                 (x, y),
