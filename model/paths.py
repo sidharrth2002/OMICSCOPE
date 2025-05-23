@@ -144,10 +144,10 @@ class GatedTranscriptomicsFusion(nn.Module):
         # 3) enrichment
         enriched = self.enricher(feat_1, feat_2)
 
-        wandb.log({
-            "gated_enrichment": g.mean(),
-            "g_hist": wandb.Histogram(g.detach().cpu().numpy())
-        })
+        # wandb.log({
+        #     "gated_enrichment": g.mean(),
+        #     "g_hist": wandb.Histogram(g.detach().cpu().numpy())
+        # })
 
         # 4) fuse
         return g * enriched + (1.0 - g) * feat_1
@@ -466,6 +466,11 @@ class PATHSProcessor(nn.Module, Processor):
                     f"Number of patches with non-zero transcriptomics features: {valid_mask.sum()} out of {valid_mask.numel()}"
                 )
             elif self.config.transcriptomics_combine_method == "gated_enrichment":
+                patch_ctx = self.combine_transcriptomics_patch_ctx(
+                    feat_1=patch_ctx,        # [B, N, D]
+                    feat_2=transcriptomics   # [B, N, F]
+                )
+            elif self.config.transcriptomics_combine_method == "residual_fusion":
                 patch_ctx = self.combine_transcriptomics_patch_ctx(
                     feat_1=patch_ctx,        # [B, N, D]
                     feat_2=transcriptomics   # [B, N, F]

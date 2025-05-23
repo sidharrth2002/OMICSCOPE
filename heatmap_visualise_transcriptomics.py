@@ -365,7 +365,7 @@ def compute_attention_gene_overlap(
             expr_norm = (expr_values - np.min(expr_values)) / (np.max(expr_values) - np.min(expr_values) + 1e-8)
             attn_norm = (attn_values - np.min(attn_values)) / (np.max(attn_values) - np.min(attn_values) + 1e-8)
 
-            # Initialize heatmaps
+            # Initialize heatmaps``
             expr_heatmap = np.zeros((h, w), dtype=float)
             attn_heatmap = np.zeros((h, w), dtype=float)
 
@@ -686,6 +686,13 @@ if __name__ == "__main__":
         type=str,
         help="Path to the gene list file. This is used to load the gene list.",
     )
+    parser.add_argument(
+        "-o",
+        "--out-path",
+        default=None,
+        type=str,
+        help="Path to the output directory.",
+    )
     # parser.add_argument(
     #     "-o",
     #     "--out",
@@ -702,6 +709,10 @@ if __name__ == "__main__":
     )  # test_mode stops error when checking existence of data dirs
 
     print(config)
+    
+    # outpath is a directory, if it doesn't exist, create it
+    if (args.out_path is not None) and (not os.path.isdir(args.out_path)):
+        os.makedirs(args.out_path, exist_ok=True)
 
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
@@ -732,7 +743,8 @@ if __name__ == "__main__":
         transform,
         args.slide_path,
         args.annotation_path,
-        out_path=f"/home/sn666/dissertation/benchmarking/PATHS/visualisations/",
+        # out_path=f"/home/sn666/dissertation/benchmarking/PATHS/visualisations/",
+        out_path=args.out_path,
         full_gene_list=load_gene_list(args.st_model_config),
         # chosen_genes=["ENG", "A2M", "SOD1", "TCFBR2"],
         chosen_genes=load_genes(args.gene_list),

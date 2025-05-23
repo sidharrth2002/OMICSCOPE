@@ -4,15 +4,15 @@ set -e  # Exit on error
 set -m  # Job control enabled
 
 # === Config ===
-MODEL_PATH_WITH="/home/sn666/dissertation/benchmarking/PATHS/models_with_transcriptomics/luad_paths_0"
-# MODEL_PATH_WITH="/home/sn666/dissertation/benchmarking/PATHS/backup/luad_paths_0"
-MODEL_PATH_WITHOUT="/home/sn666/dissertation/benchmarking/PATHS/models/luad_paths_0"
+MODEL_PATH_WITH="/home/sn666/dissertation/benchmarking/PATHS/models_with_transcriptomics/brca_paths_0"
+# MODEL_PATH_WITH="/home/sn666/dissertation/benchmarking/PATHS/backup/brca_paths_0"
+MODEL_PATH_WITHOUT="/home/sn666/dissertation/benchmarking/PATHS/models/brca_paths_0"
 CONFIG_PATH="/home/sn666/dissertation/config/train_config/stnet_pancancer_highest_mag.yaml"
 TRANSCRIPTOMICS_CHECKPOINT="/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/stnet_pancancer_highest_mag/epoch=5-step=17874.ckpt"
-WSI_DIR="/auto/archive/tcga/tcga/wsi/luad"
-CHOSEN_GENE_LIST="/home/sn666/dissertation/config/visualisation_genes/lung_100.txt"
-TEST_LIST="/home/sn666/dissertation/benchmarking/PATHS/models/luad_paths_1/test_slide_ids.txt"
-OUT_PATH="/home/sn666/dissertation/benchmarking/PATHS/visualisations_luad_100"
+WSI_DIR="/auto/archive/tcga/tcga/wsi/brca"
+CHOSEN_GENE_LIST="/home/sn666/dissertation/config/visualisation_genes/breast.txt"
+TEST_LIST="/home/sn666/dissertation/benchmarking/PATHS/models/brca_paths_0/test_slide_ids.txt"
+OUT_PATH="/home/sn666/dissertation/benchmarking/PATHS/visualisations_brca"
 
 MAX_JOBS=2
 

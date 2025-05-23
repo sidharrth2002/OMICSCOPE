@@ -18,6 +18,8 @@ models_with_transcriptomics/**/*.pt
 models_with_transcriptomics/**/*.pkl
 visualisations/**
 visualisations_old/**
+visualisations_brca/**
+visualisations_kirp_100/**
 
 backup/**
 

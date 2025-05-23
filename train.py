@@ -81,13 +81,16 @@ def train_loop(
 
     scaler = GradScaler()
 
+    STOPPING_METRIC = "val_c-index"
+    STOPPING_MODE = "max"
+
     # TODO: put back
     # For early stopping on val loss
     # early_stopping = EarlyStopping(
     #     patience=config.early_stopping_patience, mode="min", verbose=True
     # )
     early_stopping = EarlyStopping(
-        patience=config.early_stopping_patience, mode="max", verbose=True
+        patience=config.early_stopping_patience, mode=STOPPING_MODE, verbose=True
     )
     if config.early_stopping:
         assert (
@@ -164,6 +167,20 @@ def train_loop(
 
                 # TODO: put back
                 # print("dtype of log_dict[val_loss]", type(log_dict["val_loss"]))
+                # print(f"dtype of log_dict[{STOPPING_METRIC}]", type(log_dict["val_c-index"]))
+                # print(f"value of log_dict[{STOPPING_METRIC}]", log_dict["val_c-index"])
+                # if config.task == "survival":
+                #     # if type is float, set val_score to val_c-index
+                #     if isinstance(log_dict[STOPPING_METRIC], float):
+                #         val_score = log_dict[STOPPING_METRIC]
+                #     else:
+                #         val_score = log_dict[STOPPING_METRIC].item()
+                # else:
+                #     # if type is float, set val_score to val_AUC
+                #     if isinstance(log_dict[STOPPING_METRIC], float):
+                #         val_score = log_dict[STOPPING_METRIC]
+                #     else:
+                #         val_score = log_dict[STOPPING_METRIC].item()
                 val_score = log_dict["val_c-index"].item() if config.task == "survival" else log_dict["val_AUC"]
                 # val_score = log_dict["val_loss"]
                 if config.early_stopping and early_stopping.step(val_score, model):

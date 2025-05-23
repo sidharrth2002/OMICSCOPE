@@ -253,7 +253,6 @@ def from_raw_slide(slide: RawSlide, im_enc, transform, device=None, transcriptom
     with torch.no_grad():
         fts = im_enc(transform(slide.patches.to(device)))
         # fts = im_enc(transform(slide.patches))
-
     transcriptomics = get_transcriptomics_data(fts, transcriptomics_model_path=transcriptomics_model_path)
 
     num_ims = torch.LongTensor([slide.locs.size(0)]).to(device)

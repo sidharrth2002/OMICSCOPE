@@ -37,7 +37,7 @@
         "transcriptomics_type": "highest-magnification",
         "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/stnet_pancancer_highest_mag/epoch=5-step=17874.ckpt",
         "transcriptomics_leaf_frac": 0.2,
-        "transcriptomics_combine_method": "context-concat"        
+        "transcriptomics_combine_method": "residual_fusion"        
     },
     "root_name": "luad_paths"
 }
