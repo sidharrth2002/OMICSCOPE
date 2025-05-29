@@ -63,12 +63,16 @@ def load_splits(props, seed, ctx_dim, config, test_only=False, combined=False):
         # remove .svs extension
         frame["slide_id"] = [".".join(s.split(".")[:-1]) for s in frame["slide_id"]]
 
+    print(f"Loaded {len(frame)} rows from {config.csv_path}.")
+
     # Prune invalid rows with no corresponding slide
     invalid_labels = []
     for i in range(len(frame)):
         slide_id = frame.iloc[i].slide_id
         root_dir = frame.iloc[i].root_dir
         path = os.path.join(root_dir, slide_id + f"_{config.base_power:.3f}.pt")
+
+        print(f"Checking {path}... ", end="")
 
         if not os.path.isfile(path):
             invalid_labels.append(i)
@@ -156,6 +160,9 @@ def load_splits(props, seed, ctx_dim, config, test_only=False, combined=False):
         train = frame.sample(train_c, random_state=seed)
         val = frame.drop(train.index).sample(val_c, random_state=seed)
         test = frame.drop(train.index).drop(val.index)
+
+    print(train)
+    # os._exit(0)  # TODO: remove this line, it's only to test script
 
     if test_only:
         test.reset_index(inplace=True, drop=True)

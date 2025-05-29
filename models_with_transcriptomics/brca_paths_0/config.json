@@ -39,9 +39,9 @@
     "lstm": true,
     "add_transcriptomics": true,
     "transcriptomics_type": "multi-magnification",
-    "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/stnet_pancancer_highest_mag/epoch=5-step=17874.ckpt",
-    "transcriptomics_leaf_frac": 0.2,
-    "transcriptomics_combine_method": "context-concat"
+    "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/image_grid_stnet_pancancer/epoch=12-step=10218.ckpt",
+    "transcriptomics_leaf_frac": 0.8,
+    "transcriptomics_combine_method": "residual_fusion"
 },
 
   "root_name": "brca_paths"

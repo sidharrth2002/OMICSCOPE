@@ -81,8 +81,11 @@ def train_loop(
 
     scaler = GradScaler()
 
-    STOPPING_METRIC = "val_c-index"
-    STOPPING_MODE = "max"
+    # TODO: make sure to check this
+    # STOPPING_METRIC = "val_c-index"
+    STOPPING_METRIC = "val_loss"
+    # STOPPING_MODE = "max"
+    STOPPING_MODE = "min"
 
     # TODO: put back
     # For early stopping on val loss
@@ -181,8 +184,11 @@ def train_loop(
                 #         val_score = log_dict[STOPPING_METRIC]
                 #     else:
                 #         val_score = log_dict[STOPPING_METRIC].item()
-                val_score = log_dict["val_c-index"].item() if config.task == "survival" else log_dict["val_AUC"]
-                # val_score = log_dict["val_loss"]
+                if STOPPING_METRIC == "val_c-index":                    
+                    val_score = log_dict["val_c-index"].item() if config.task == "survival" else log_dict["val_AUC"]
+                elif STOPPING_METRIC == "val_loss":
+                    val_score = log_dict["val_loss"]
+    
                 if config.early_stopping and early_stopping.step(val_score, model):
                     print(f"Early stopping at epoch {e+1}")
                     model = early_stopping.load_best_weights(model)

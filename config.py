@@ -128,6 +128,7 @@ class Config:
 
     # TODO: set back to 10
     early_stopping_patience: int = 10
+    # early_stopping_patience: int = 5
 
     root_name: str = ""  # for tracking multiple folds
 

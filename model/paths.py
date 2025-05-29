@@ -316,11 +316,18 @@ class PATHSProcessor(nn.Module, Processor):
                 #     dropout_p=0.2
                 # )
             elif config.transcriptomics_combine_method == "residual_fusion":
+                # TODO: put back
                 self.combine_transcriptomics_patch_ctx = ResidualTranscriptomicsFusion(
                     feat1_dim=self.dim + self.hdim, 
                     feat2_dim=get_num_transcriptomics_features(config.transcriptomics_model_path),
                     hidden_dim=self.hdim
                 )
+                # for pre-concatenation
+                # self.combine_transcriptomics_patch_ctx = ResidualTranscriptomicsFusion(
+                #     feat1_dim=self.dim, 
+                #     feat2_dim=get_num_transcriptomics_features(config.transcriptomics_model_path),
+                #     hidden_dim=self.hdim
+                # )
             elif config.transcriptomics_combine_method == "cross_attention":
                 self.combine_transcriptomics_patch_ctx = CrossAttentionFusion(
                     patch_dim=self.dim + self.hdim if config.lstm else self.dim,
@@ -390,6 +397,47 @@ class PATHSProcessor(nn.Module, Processor):
                     hs, cs = lstm_state[..., : self.dim], lstm_state[..., self.dim :]
 
             # print(f"hs shape: {hs.shape}, cs shape: {cs.shape}")
+
+            # if transcriptomics is not None and self.config.add_transcriptomics:
+            #     # generate a random tensor of the same shape as the transcriptomics tensor
+            #     # random_tensor = torch.rand(transcriptomics.shape).to(transcriptomics.device)
+            #     # patch_ctx = self.combine_transcriptomics_patch_ctx(
+            #     #     torch.cat((patch_ctx, random_tensor), dim=-1)
+            #     # )
+
+            #     # print("adding transcriptomics features to patch context")
+            #     # TODO: check if this is correct
+            #     if self.config.transcriptomics_combine_method == "residual_enrichment":
+            #         valid_mask = transcriptomics.abs().sum(dim=-1, keepdim=True) != 0
+            #         # print("mask ", valid_mask)
+            #         enriched_ctx = self.combine_transcriptomics_patch_ctx(
+            #             feat_1=hs,
+            #             feat_2=transcriptomics,
+            #         )
+            #         # enriched_ctx = self.combine_transcriptomics_patch_ctx(
+            #         #     torch.cat((patch_ctx, transcriptomics.clone().detach()), dim=-1)
+            #         # )
+            #         hs = torch.where(valid_mask, enriched_ctx, patch_ctx)
+            #         # print how many patches are not zero
+            #         print(
+            #             f"Number of patches with non-zero transcriptomics features: {valid_mask.sum()} out of {valid_mask.numel()}"
+            #         )
+            #     elif self.config.transcriptomics_combine_method == "gated_enrichment":
+            #         hs = self.combine_transcriptomics_patch_ctx(
+            #             feat_1=hs,        # [B, N, D]
+            #             feat_2=transcriptomics   # [B, N, F]
+            #         )
+            #     elif self.config.transcriptomics_combine_method == "residual_fusion":
+            #         hs = self.combine_transcriptomics_patch_ctx(
+            #             feat_1=hs,        # [B, N, D]
+            #             feat_2=transcriptomics   # [B, N, F]
+            #         )
+            #     elif self.config.transcriptomics_combine_method == "cross_attention":
+            #         hs = self.combine_transcriptomics_patch_ctx(
+            #             patch_feats=hs,        # [B, N, D]
+            #             transcriptomics_feats=transcriptomics   # [B, N, F]
+            #         )
+
             hs, cs = lstm(patch_features, hs, cs)
 
             patch_features = patch_features + hs  # produce Y from X
