@@ -30,6 +30,7 @@ class PatchBatch:
         ctx_patch: torch.Tensor,
         fts: torch.Tensor,
         transcriptomics: torch.Tensor = None,
+        bulk_omics: torch.Tensor = None,
         **unused_kwargs
     ):
         """
@@ -90,6 +91,8 @@ class PatchBatch:
         inds = inds < num_ims[:, None]
         # Now self.patches[valid_inds] will extract only non-padding patches
         self.valid_inds = inds
+        
+        self.bulk_omics = bulk_omics
 
 
 def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_model_path: str) -> PatchBatch:
@@ -226,6 +229,7 @@ def from_batch(batch: Dict, device, transcriptomics_type: str, transcriptomics_m
         print("transcriptomics", batch['transcriptomics'].shape)
 
     batch = {i: utils.todevice(j, device) for i, j in batch.items()}
+    print(f"Batch keys: {batch.keys()}")
     return PatchBatch(**batch)
 
 
@@ -264,6 +268,7 @@ def from_raw_slide(slide: RawSlide, im_enc, transform, device=None, transcriptom
         p(slide.ctx_patch),
         p(fts),
         transcriptomics=p(transcriptomics),
+        bulk_omics=p(slide.bulk_omics) if (hasattr(slide, 'bulk_omics') and slide.bulk_omics is not None) else None,
     )
 
 
@@ -295,4 +300,5 @@ def from_preprocessed_slide(slide: PreprocessedSlide, device=None) -> PatchBatch
         p(slide.ctx_patch),
         p(fts),
         transcriptomics=transcriptomics,
+        bulk_omics=p(slide.bulk_omics) if (hasattr(slide, 'bulk_omics') and slide.bulk_omics is not None) else None,
     )

@@ -45,6 +45,7 @@ class PATHSProcessorConfig(ModelConfig):
     transcriptomics_combine_method: str = "residual_enrichment" # can also be "attention_weigted_sum"
     
     random_rec_baseline: bool = False  # random patch selection. just used for ablation
+    cohort: str = None
 
 
 @dataclass

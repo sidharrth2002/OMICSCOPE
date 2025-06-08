@@ -295,7 +295,7 @@ class PreprocessedSlide:
     """
 
     def __init__(self, slide_id: str, preprocessed_root: str, base_power: float, num_levels: int, patch_size: int,
-                 ctx_slide: torch.Tensor, leaf_frac: float, ctx_patch_dim: int = None, subtype=None, wsi_root: str = None):
+                 ctx_slide: torch.Tensor, leaf_frac: float, ctx_patch_dim: int = None, subtype=None, wsi_root: str = None, bulk_omics=None):
         self.patch_size = patch_size
         self.base_power = base_power
         self.ctx_slide = ctx_slide
@@ -332,6 +332,8 @@ class PreprocessedSlide:
         
         self.num_levels = num_levels
         self.leaf_frac = leaf_frac
+        
+        self.bulk_omics = bulk_omics
         
         # print(f"Using leaf_frac {self.leaf_frac} for {self.slide_id}")
 
@@ -609,6 +611,7 @@ class PreprocessedSlide:
             "locs": new_locs * self.patch_size,
             "parent_inds": parent_inds,
             "slide_id": self.slide_id,
+            "bulk_omics": self.bulk_omics
         }
         
         if return_leaf:
@@ -648,9 +651,9 @@ class PreprocessedSlide:
 
 
 def load_patch_preprocessed_slide(slide_id: str, preprocessed_root: str, base_power: float, patch_size: int,
-                                  ctx_dim: Tuple[int, int], num_levels: int, leaf_frac: float, subtype=None) -> PreprocessedSlide:
+                                  ctx_dim: Tuple[int, int], num_levels: int, leaf_frac: float, subtype=None, bulk_omics=None) -> PreprocessedSlide:
     ctx_slide = torch.zeros((0, ctx_dim[0]))
-    slide = PreprocessedSlide(slide_id, preprocessed_root, base_power, num_levels, patch_size, ctx_slide, leaf_frac, ctx_dim[1], subtype=subtype)
+    slide = PreprocessedSlide(slide_id, preprocessed_root, base_power, num_levels, patch_size, ctx_slide, leaf_frac, ctx_dim[1], subtype=subtype, bulk_omics=bulk_omics)
     return slide
 
 

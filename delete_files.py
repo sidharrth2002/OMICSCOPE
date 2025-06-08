@@ -1,4 +1,4 @@
-path = "/auto/archive/tcga/sn666/trained_models/PATHS/ablations/enrichment_strategy/kirc"
+path = "/home/sn666/dissertation/benchmarking/PATHS/models_with_diffusion_transcriptomics/"
 
 # recursively iterate through all files in the directory and delete "model.pt", "train_stats.pkl", and "wandb_id"
 import os

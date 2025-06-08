@@ -60,12 +60,14 @@ def load_model(checkpoint_path: str):
         model = HistopathologyToTranscriptomics.load_from_checkpoint(checkpoint_path)
     elif "diffusion" in checkpoint_path:
         model = MultiMagnificationDiffusionModel.load_from_checkpoint(checkpoint_path)
+        model.update_diffusion_eval(num_sampling_steps=50)
     else:
         raise ValueError(f"Unknown model type in checkpoint path: {checkpoint_path}")
     return model
 
 
 transcriptomics_model = None
+transcriptomics_model_visualisation = None
 
 """
 This global variable is used to store the transcriptomics observations of previously 
@@ -75,7 +77,7 @@ Why do this?
 Because the same "high-resolution" patch can end up at multiple magnifications, and we don't want to recompute
 """
 CACHE: dict[str, torch.Tensor] = {}     # fp16 preds on CPU to save RAM
-
+CACHE_VISUALISATION: dict[str, torch.Tensor] = {}  # for visualisation only
 
 def tensor_fingerprint(
     t: torch.Tensor,
@@ -93,6 +95,94 @@ def tensor_fingerprint(
     # .contiguous() is a no‑op if the tensor is already C‑contiguous.
     buf = t.detach().to(dtype=torch.float32, device="cpu", copy=False).contiguous().numpy().tobytes()
     return hashlib.blake2b(buf, digest_size=8).hexdigest()  # 8 bytes → 16‑char hex
+
+def get_transcriptomics_data_visualisation(patch_features: torch.Tensor, transcriptomics_model_path: str, batch_size: int = 1000) -> torch.Tensor:
+    """
+    TO BE CALLED ONLY FOR VISUALISATION PURPOSES.
+    Predicts transcriptomics from patch embeddings (non-zero ones),
+    using a pre-trained model, with caching support.
+    
+    Args:
+        patch_features (Tensor): shape [P, D]
+        transcriptomics_model_path (str): path to the model
+    
+    Returns:
+        Tensor: shape [P, G] — transcriptomics predictions
+    """
+    global transcriptomics_model_visualisation
+
+    if transcriptomics_model_visualisation is None:
+        print(f"Loading transcriptomics model from {transcriptomics_model_path}...")
+        transcriptomics_model_visualisation = load_model(transcriptomics_model_path).to(torch.device('cuda'))
+        # set model to eval mode
+        transcriptomics_model_visualisation.eval()
+    
+    print(f"Patch features shape: {patch_features.shape}")
+    device = patch_features.device
+    print(f"Patch features device: {device}")
+    print(f"Model device: {device}")
+    P, D = patch_features.shape
+    out_dim = transcriptomics_model_visualisation.num_outputs
+
+    result = torch.zeros((P, out_dim), device=device)
+    missing_idx, fingerprints = [], []
+
+    for i in range(P):
+        patch_i = patch_features[i]  # shape: [D]
+        # print(f"Patch {i} non-zero count: {torch.count_nonzero(patch_i)} / {patch_i.numel()}")
+
+        fp = tensor_fingerprint(patch_i, ndigits=4)
+        if fp in CACHE_VISUALISATION:
+            # print(f"Cache hit for {fp}")
+            result[i] = CACHE_VISUALISATION[fp].to(device)
+        else:
+            fingerprints.append(fp)
+            missing_idx.append(i)
+
+    if missing_idx:
+        feats = patch_features[missing_idx]  # [num_missing, D]
+        print(f"Missing patch features shape: {feats.shape}")
+
+        if "diffusion" in transcriptomics_model_path.lower():
+            batch_size = 32
+
+        if len(feats) < batch_size:
+            batch_size = len(feats)
+        # else:
+        #     # TODO: adjust this if diffusion starts to crash
+        #     batch_size = 1000
+
+        # save feats to a file
+        # torch.save(feats, "feats.pt")
+        # os._exit(0)
+
+        loader = torch.utils.data.DataLoader(
+            MiniPatchDataset(feats),
+            batch_size=batch_size,
+        )
+
+        print(f"Loader length: {len(loader)}")
+        print(f"First item shape: {loader.dataset[0]['foundation_model_features'].shape}")
+
+        trainer = pl.Trainer(
+            accelerator="gpu" if torch.cuda.is_available() else "cpu",
+            devices=1,
+            logger=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+        )
+
+        with suppress_logging():
+            preds = torch.cat(trainer.predict(transcriptomics_model_visualisation, dataloaders=loader), dim=0)  # [num_missing, G]
+
+        print(f"preds device: {preds.device}")
+
+        result[missing_idx] = preds.to(device)
+
+        for fp, pred in zip(fingerprints, preds):
+            CACHE_VISUALISATION[fp] = pred.to(dtype=torch.float32, device="cpu")
+
+    return result
 
 def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model_path: str, batch_size: int = 1000) -> torch.Tensor:
     """
@@ -139,6 +229,9 @@ def get_transcriptomics_data(patch_features: torch.Tensor, transcriptomics_model
     if missing_idx:
         feats = patch_features[missing_idx]  # [num_missing, D]
         print(f"Missing patch features shape: {feats.shape}")
+
+        if "diffusion" in transcriptomics_model_path.lower():
+            batch_size = 32
 
         if len(feats) < batch_size:
             batch_size = len(feats)

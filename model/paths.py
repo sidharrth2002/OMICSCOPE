@@ -17,6 +17,12 @@ import wandb
 import torch
 import torch.nn as nn
 
+NUM_BULK_OMICS = {
+    "LUAD": 1555,  # LUAD has 1555 bulk omics features
+    "KIRP": 1557,
+    "BRCA": 1558
+}
+
 class CrossAttentionFusion(nn.Module):
     def __init__(self, patch_dim, transcriptomics_dim, hidden_dim, n_heads=4, dropout=0.1):
         super().__init__()
@@ -158,6 +164,8 @@ class ResidualTranscriptomicsFusion(nn.Module):
         input_dim = feat1_dim + feat2_dim
         output_dim = feat1_dim
 
+        print(f"input dim: {input_dim}, output_dim: {output_dim}, hidden_dim: {hidden_dim}")
+
         self.proj = nn.Sequential(
             nn.LayerNorm(input_dim),
             nn.Linear(input_dim, hidden_dim),
@@ -285,6 +293,13 @@ class PATHSProcessor(nn.Module, Processor):
         #     nn.ReLU(),
         #     nn.Linear(self.dim + self.hdim, self.dim + self.hdim)
         # )
+        self.combine_bulk_omics = ResidualTranscriptomicsFusion(
+            feat1_dim=128,
+            feat2_dim=NUM_BULK_OMICS[config.cohort],  # e.g. 1555 for LUAD
+            hidden_dim=self.hdim,
+            dropout_p=0.2
+        )
+        
         if config.add_transcriptomics:
             if config.transcriptomics_combine_method == "residual_enrichment":
                 self.combine_transcriptomics_patch_ctx = CombineTranscriptomicsPatchCtx(
@@ -316,7 +331,13 @@ class PATHSProcessor(nn.Module, Processor):
                 #     dropout_p=0.2
                 # )
             elif config.transcriptomics_combine_method == "residual_fusion":
-                # TODO: put back
+                # TODO: put back: very important
+                print("initialising here")
+                # self.combine_transcriptomics_patch_ctx = ResidualTranscriptomicsFusion(
+                #     feat1_dim=self.dim + self.hdim,
+                #     feat2_dim=get_num_transcriptomics_features(config.transcriptomics_model_path) + NUM_BULK_OMICS[config.cohort],
+                #     hidden_dim=self.hdim
+                # )
                 self.combine_transcriptomics_patch_ctx = ResidualTranscriptomicsFusion(
                     feat1_dim=self.dim + self.hdim, 
                     feat2_dim=get_num_transcriptomics_features(config.transcriptomics_model_path),
@@ -523,6 +544,37 @@ class PATHSProcessor(nn.Module, Processor):
                     feat_1=patch_ctx,        # [B, N, D]
                     feat_2=transcriptomics   # [B, N, F]
                 )
+                # print("appending bulk omics as well")
+                # # print(len(data.bulk_omics))
+                # # print(len(data.bulk_omics[0]))
+                # # print(f"transcriptomics shape: {transcriptomics.shape}")
+                # # print(type(data.bulk_omics))
+                # # print(torch.Tensor(data.bulk_omics).shape)
+                # # save data.bulk_omics to a pickle file
+                # # with open("bulk_omics.pickle", "wb") as f:
+                # #     import pickle
+                # #     pickle.dump(data.bulk_omics, f)
+
+                # if isinstance(data.bulk_omics, list):
+                #     # convert list of tensors to a tensor
+                #     catted_bulk_omics = torch.stack(data.bulk_omics).T
+                #     print(f"catted_bulk_omics shape: {catted_bulk_omics.shape}")
+                # else:
+                #     catted_bulk_omics = data.bulk_omics
+                #     print(f"data.bulk_omics.shape: {catted_bulk_omics.shape}")
+
+                # # print(f"catted_bulk_omics shape: {catted_bulk_omics.shape}")
+                # # print(f"transcriptomics shape: {transcriptomics.shape}")
+                # catted_features = torch.cat((transcriptomics, catted_bulk_omics.to(dtype=torch.float32).unsqueeze(1).expand(-1, patch_ctx.shape[1], -1).to(transcriptomics.device)), dim=-1)
+                # # make dtype double
+                # catted_features = catted_features.to(dtype=torch.float32)
+                # print(f"dtype of catted_features: {catted_features.dtype}")
+                # # make catted_features float
+                # print(f"catted_features shape: {catted_features.shape}")
+                # patch_ctx = self.combine_transcriptomics_patch_ctx(
+                #     feat_1=patch_ctx,        # [B, N, D]
+                #     feat_2=catted_features   # [B, N, F + NUM_BULK_OMICS["LUAD"]]
+                # )
             elif self.config.transcriptomics_combine_method == "cross_attention":
                 patch_ctx = self.combine_transcriptomics_patch_ctx(
                     patch_feats=patch_ctx,        # [B, N, D]
@@ -561,6 +613,8 @@ class PATHSProcessor(nn.Module, Processor):
         if self.config.slide_ctx_mode == "residual" and data.ctx_depth > 0:
             slide_features = slide_features + data.ctx_slide[:, -1]
 
+        print(f"slide_features shape: {slide_features.shape}")
+
         ################# Produce final logits
         if self.config.slide_ctx_mode == "concat":
             all_ctx = torch.flatten(
@@ -569,6 +623,18 @@ class PATHSProcessor(nn.Module, Processor):
             ft = torch.cat((all_ctx, slide_features), dim=1)
             logits = self.classification_layer(ft)
         else:
+            if isinstance(data.bulk_omics, list):
+                # convert list of tensors to a tensor
+                catted_bulk_omics = torch.stack(data.bulk_omics).T
+                print(f"catted_bulk_omics shape: {catted_bulk_omics.shape}")
+            else:
+                catted_bulk_omics = data.bulk_omics
+                print(f"data.bulk_omics.shape: {catted_bulk_omics.shape}")
+                
+            ft = self.combine_bulk_omics(
+                feat_1=slide_features, 
+                feat_2=catted_bulk_omics.to(dtype=torch.float32)
+            )
             logits = self.classification_layer(slide_features)
 
         return {

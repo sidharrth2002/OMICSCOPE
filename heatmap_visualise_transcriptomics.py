@@ -13,7 +13,7 @@ from matplotlib.patches import Rectangle
 import xml.etree.ElementTree as ET
 from tiatoolbox.wsicore.wsireader import WSIReader
 
-from model.transcriptomics_engine import get_transcriptomics_data, tensor_fingerprint
+from model.transcriptomics_engine import get_transcriptomics_data_visualisation, tensor_fingerprint
 import utils
 from config import Config
 from utils import device
@@ -102,6 +102,7 @@ def plot_all_gene_expression_overlay(
     # which level should we compute transcriptomics at
     visualisation_depth: int = 5,
     slide_path: str = None,
+    genes_to_visualise: list = None,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -175,11 +176,16 @@ def plot_all_gene_expression_overlay(
     # patches = image_encoder(patches)
     # print(f"Shape of patches after encoder: {patches.shape}")
 
-    transcriptomics_results = get_transcriptomics_data(
+    print(f"transcriptomics model path visualisation: {transcriptomics_model_path}")
+    transcriptomics_results = get_transcriptomics_data_visualisation(
         patches, transcriptomics_model_path=transcriptomics_model_path
     )
 
     for gene_idx, gene_name in enumerate(full_gene_list):
+        if genes_to_visualise is not None:
+            if gene_name not in genes_to_visualise:
+                continue
+        print(f"Visualising gene {gene_name}")
         if gene_name in chosen_genes:
             fig, ax = plt.subplots(figsize=(8, 8))
             ax.imshow(base_img)
@@ -236,7 +242,7 @@ def plot_selected_patches_gene_expression_overlay(
     gene_list: list,
     base_img: np.ndarray,
     transform,
-    transcriptomics_model_path: str,
+    transcriptomics_model_path_visualisation: str,
     out_path: str = None,
     image_encoder=None,
     pad: int = 128,
@@ -274,8 +280,8 @@ def plot_selected_patches_gene_expression_overlay(
     patches = image_encoder(patches)
     # print(f"Shape of patches after encoder: {patches.shape}")
 
-    transcriptomics_results = get_transcriptomics_data(
-        patches, transcriptomics_model_path=transcriptomics_model_path
+    transcriptomics_results = get_transcriptomics_data_visualisation(
+        patches, transcriptomics_model_path=transcriptomics_model_path_visualisation
     )
 
     # visualization loop
@@ -416,7 +422,9 @@ def heatmap_camelyon17_transcriptomics(
     full_gene_list: list,
     chosen_genes: list,
     transcriptomics_visualisation_depth: int,
-    transcriptomics_model_path: str,
+    transcriptomics_model_path_model: str,
+    transcriptomics_model_path_visualisation: str,
+    genes_to_visualise: list = None,
 ):
     # check if the WSI exists
     assert os.path.isfile(slide_path), f"Couldn't find WSI at path '{slide_path}'."
@@ -463,7 +471,7 @@ def heatmap_camelyon17_transcriptomics(
             slide,
             image_encoder,
             transform,
-            transcriptomics_model_path=transcriptomics_model_path,
+            transcriptomics_model_path=transcriptomics_model_path_model,
         )
         out = model(depth, data)
         ctx_slide = out["ctx_slide"][0]
@@ -500,13 +508,14 @@ def heatmap_camelyon17_transcriptomics(
         chosen_genes=chosen_genes,
         base_img=bigimg,
         transform=transform,
-        transcriptomics_model_path=transcriptomics_model_path,
+        transcriptomics_model_path=transcriptomics_model_path_visualisation,
         out_path=out_path,
         image_encoder=image_encoder,
         pad=128,
         P=config.model_config.patch_size,
         visualisation_depth=transcriptomics_visualisation_depth,
         slide_path=slide_path,
+        genes_to_visualise=genes_to_visualise,
     )
 
     H, W, C = bigimg.shape
@@ -674,10 +683,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-t",
-        "--transcriptomics-model-path",
+        "--tmpm",
         default=None,
         type=str,
         help="Path to the transcriptomics model checkpoint.",
+    )
+    parser.add_argument(
+        "-u",
+        "--tmpv",
+        default=None,
+        type=str,
+        help="Path to the transcriptomics model checkpoint for visualisation.",
     )
     parser.add_argument(
         "-g",
@@ -692,6 +708,12 @@ if __name__ == "__main__":
         default=None,
         type=str,
         help="Path to the output directory.",
+    )
+    parser.add_argument(
+        "-v",
+        "--genes_to_visualise",
+        default=None,
+        help="Comma-separated list of genes to visualise. If not provided, all genes in the gene list will be visualised.",
     )
     # parser.add_argument(
     #     "-o",
@@ -736,6 +758,10 @@ if __name__ == "__main__":
 
     # QSOX1: Shows prognostic value in LUAD, with higher expression correlating with better outcomes
 
+    print(f"Model path model: {args.tmpm}")
+    print(f"Model path visualisation: {args.tmpv}")
+    print(f"Genes to visualise: {args.genes_to_visualise}")
+
     heatmap_camelyon17_transcriptomics(
         config,
         model,
@@ -749,5 +775,7 @@ if __name__ == "__main__":
         # chosen_genes=["ENG", "A2M", "SOD1", "TCFBR2"],
         chosen_genes=load_genes(args.gene_list),
         transcriptomics_visualisation_depth=3,
-        transcriptomics_model_path=args.transcriptomics_model_path,
+        transcriptomics_model_path_model=args.tmpm,
+        transcriptomics_model_path_visualisation=args.tmpv,
+        genes_to_visualise=args.genes_to_visualise.split(",") if args.genes_to_visualise else None,
     )

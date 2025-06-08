@@ -58,6 +58,8 @@ def load_splits(props, seed, ctx_dim, config, test_only=False, combined=False):
     else:
         # Load CSV here and split the dataset
         frame = pd.read_csv(config.csv_path, compression="zip")
+        print(f"Loaded {len(frame)} rows from {config.csv_path}.")
+        print("Columns in CSV:", frame.columns)
         frame["root_dir"] = config.preprocess_dir  # required to support multi-dataset mode
 
         # remove .svs extension
@@ -88,7 +90,10 @@ def load_splits(props, seed, ctx_dim, config, test_only=False, combined=False):
 
     # Filter to necessary columns
     if config.task == "survival":
-        frame = frame[["case_id", "slide_id", "survival_months", "censorship", "oncotree_code", "root_dir"]]
+        # frame = frame[["case_id", "slide_id", "survival_months", "censorship", "oncotree_code", "root_dir"]]
+        # also keep any columns that end with _rnaseq
+        cols_to_keep = [col for col in frame.columns if col.endswith("_rnaseq")] + ["case_id", "slide_id", "survival_months", "censorship", "oncotree_code", "root_dir"]
+        frame = frame[cols_to_keep]
         _, bins = pd.qcut(frame.survival_months, config.nbins, labels=False, retbins=True)
     else:
         frame = frame[["slide_id", "oncotree_code", "root_dir"]]
@@ -228,11 +233,38 @@ class SlideDataset(dutils.Dataset):
             self.censorship = torch.tensor(frame.censorship.to_numpy(np.int64), dtype=torch.long)
 
             self.subtype = None
+            
+        self.bulk_omics = []
+        # keep all columns that end with _rnaseq
+        rnaseq_cols = [col for col in frame.columns if col.endswith('_rnaseq')]
+        print(f"Found {len(rnaseq_cols)} RNA-seq columns")
 
+        # 2. Extract and store as per-sample lists
+        for i in tqdm(range(ds_len), desc="Loading bulk omics..."):
+            # Optionally: .iloc if frame is pandas
+            sample_values = frame.iloc[i][rnaseq_cols].values.tolist()
+            self.bulk_omics.append(torch.tensor(sample_values, dtype=torch.float32))
+        
+        self.bulk_omics = torch.stack(self.bulk_omics, dim=0)  # (N, D) where N is number of samples and D is number of features
+        print(f"Loaded bulk omics data with shape: {self.bulk_omics.shape if self.bulk_omics is not None else 'None'}")
+        print(f"First element of bulk omics: {self.bulk_omics[0]}")
+        print(f"First element of bulk omics shape: {self.bulk_omics[0].shape}")
+        
         # Single-threaded version
         self.slides = []
         for i in tqdm(range(ds_len), desc="Pre-patching dataset..."):
             self.slides.append(self.load_top_level(i))
+        
+        # os._exit(0)
+        
+        # print(f"Loaded bulk omics data with shape: {self.bulk_omics.shape if self.bulk_omics is not None else 'None'}")
+        # os._exit(0)  # TODO: remove this line, it's only to test script
+        
+        # for col in frame.columns:
+        #     if col.endswith("_rnaseq"):
+        #         print(f"Loading bulk omics column: {col}")
+        #         self.bulk_omics.append(frame[col].to_numpy(np.float32))
+        # self.bulk_omics = np.stack(self.bulk_omics, axis=1) if len(self.bulk_omics) > 0 else None
 
         # Multi-threaded version
         # torch.multiprocessing.set_sharing_strategy('file_system')
@@ -259,7 +291,7 @@ class SlideDataset(dutils.Dataset):
             slide_id = slide_id[:-4]
 
         return load_patch_preprocessed_slide(slide_id, preprocessed_root, self.base_power, self.patch_size,
-                                             self.ctx_dim, self.num_levels, leaf_frac=self.leaf_frac, **kwargs)
+                                             self.ctx_dim, self.num_levels, leaf_frac=self.leaf_frac, bulk_omics=self.bulk_omics[idx], **kwargs)
 
     def __len__(self):
         return len(self.slide_ids)
@@ -278,7 +310,7 @@ class SlideDataset(dutils.Dataset):
         else:
             label_data = {}
 
-        ret = s.todict() | label_data | {"slide": s}
+        ret = s.todict() | label_data | {"slide": s} | {"bulk_omics": self.bulk_omics[item].tolist()}
         
         # print keys in ret
         # print(f"Keys in ret: {ret.keys()}")
@@ -364,5 +396,8 @@ def collate_fn(xs):
         extra = {}
 
     batch = default_collate(xs) | padded_data | extra
-        
+    
+    print(f"Batch keys: {batch.keys()}")
+    # os._exit(0)  # TODO: remove this line, it's only to test script
+    
     return batch

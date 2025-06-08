@@ -7,12 +7,40 @@ import math
 import pickle
 from typing import Tuple, Callable, Dict, List
 from torch.cuda.amp import GradScaler, autocast
-
+import torch.nn as nn
 from preprocess import loader
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 MAX_WORKERS = 8
+
+class ResidualTranscriptomicsFusion(nn.Module):
+    def __init__(self, feat1_dim, feat2_dim, hidden_dim, dropout_p=0.1):
+        super().__init__()
+        input_dim = feat1_dim + feat2_dim
+        output_dim = feat1_dim
+
+        print(f"input dim: {input_dim}, output_dim: {output_dim}, hidden_dim: {hidden_dim}")
+
+        self.proj = nn.Sequential(
+            nn.LayerNorm(input_dim),
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_p),
+            nn.Linear(hidden_dim, output_dim),
+            nn.Dropout(dropout_p),
+        )
+
+    def forward(self, feat_1, feat_2):
+        # feat_1: [B, N, D], feat_2: [B, N, F]
+        fused_input = torch.cat([feat_1, feat_2], dim=-1)
+        delta = self.proj(fused_input)
+
+        # Zero out delta where transcriptomics is all zeros
+        valid = (feat_2.abs().sum(dim=-1, keepdim=True) != 0).float()
+        delta = delta * valid
+
+        return feat_1 + delta
 
 
 def positional_encoding(length, dim, device=torch.device('cpu'), k=10000.0):
@@ -267,6 +295,9 @@ def inference_end2end(num_levels, keep_patches, model, base_power, batch, task: 
     from data_utils.dataset import collate_fn
 
     slides = batch["slide"]
+    
+    # what are the keys in batch?
+    # print(f"Batch keys: {list(batch.keys())}")
 
     batch0 = batch
     power = base_power
