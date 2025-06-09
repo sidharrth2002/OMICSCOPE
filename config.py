@@ -38,6 +38,7 @@ class PATHSProcessorConfig(ModelConfig):
     hierarchical_ctx_mlp_hidden_dim: int = 256
     lstm: bool = True
     
+    add_bulk_omics: bool = False  # whether to add bulk omics data to the model
     add_transcriptomics: bool = False
     transcriptomics_type: str = "none" # by default, no transcriptomics -- but this should either be multi-magnification or highest-magnification
     transcriptomics_model_path: str = None  # path to the transcriptomics model

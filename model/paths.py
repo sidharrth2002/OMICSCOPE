@@ -293,12 +293,13 @@ class PATHSProcessor(nn.Module, Processor):
         #     nn.ReLU(),
         #     nn.Linear(self.dim + self.hdim, self.dim + self.hdim)
         # )
-        self.combine_bulk_omics = ResidualTranscriptomicsFusion(
-            feat1_dim=128,
-            feat2_dim=NUM_BULK_OMICS[config.cohort],  # e.g. 1555 for LUAD
-            hidden_dim=self.hdim,
-            dropout_p=0.2
-        )
+        if config.add_bulk_omics:
+            self.combine_bulk_omics = ResidualTranscriptomicsFusion(
+                feat1_dim=128,
+                feat2_dim=NUM_BULK_OMICS[config.cohort],  # e.g. 1555 for LUAD
+                hidden_dim=self.hdim,
+                dropout_p=0.2
+            )
         
         if config.add_transcriptomics:
             if config.transcriptomics_combine_method == "residual_enrichment":
@@ -630,11 +631,14 @@ class PATHSProcessor(nn.Module, Processor):
             else:
                 catted_bulk_omics = data.bulk_omics
                 print(f"data.bulk_omics.shape: {catted_bulk_omics.shape}")
-                
-            ft = self.combine_bulk_omics(
-                feat_1=slide_features, 
-                feat_2=catted_bulk_omics.to(dtype=torch.float32)
-            )
+            
+            if self.depth == 4 and self.config.add_bulk_omics:
+                print(f"catted_bulk_omics shape: {catted_bulk_omics.shape}")
+                print(f"adding bulk omics to slide features")
+                slide_features = self.combine_bulk_omics(
+                    feat_1=slide_features, 
+                    feat_2=catted_bulk_omics.to(dtype=torch.float32)
+                )
             logits = self.classification_layer(slide_features)
 
         return {

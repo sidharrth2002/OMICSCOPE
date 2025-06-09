@@ -34,8 +34,8 @@
         "hierarchical_ctx_mlp_hidden_dim": 256,
         "lstm": true,
         "add_transcriptomics": true,
-        "transcriptomics_type": "multi-magnification",
-        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/diffusion_model/best_model-v18.ckpt",
+        "transcriptomics_type": "highest-magnification",
+        "transcriptomics_model_path": "/auto/archive/tcga/sn666/trained_models/hist_to_transcriptomics/image_grid_stnet_pancancer_sanger_all_9Jun/epoch=12-step=10205.ckpt",
         "transcriptomics_leaf_frac": 0.8,
         "transcriptomics_combine_method": "residual_fusion"
     },
